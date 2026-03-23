@@ -3,6 +3,32 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+
+  /* Slack Core Colors */
+  --slack-sidebar-bg: #3F0E40;
+  --slack-sidebar-hover: #522653;
+  --slack-active-channel: #1164A3;
+  --slack-send-button: #007A5A;
+  --slack-send-button-hover: #006849;
+
+  /* Slack Notification / Badge Colors */
+  --slack-notification-badge: #E01E5A;
+  --slack-online-indicator: #2BAC76;
+  --slack-mention-badge: #CD2553;
+  --slack-away-indicator: #DDDDDD;
+
+  /* Slack Content Colors */
+  --slack-hover-bg: #F8F8F8;
+  --slack-border: #E1E1E1;
+  --slack-text-primary: #1D1C1D;
+  --slack-text-secondary: #616061;
+  --slack-text-muted: #ABABAD;
+  --slack-link-color: #1264A3;
+
+  /* Slack UI Surface Colors */
+  --slack-thread-bg: #FFFFFF;
+  --slack-modal-backdrop: rgba(0, 0, 0, 0.5);
+  --slack-tooltip-bg: #1D1C1D;
 }
 
 @theme inline {
@@ -10,12 +36,27 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  /* Slack palette tokens */
+  --color-slack-sidebar: var(--slack-sidebar-bg);
+  --color-slack-active: var(--slack-active-channel);
+  --color-slack-send: var(--slack-send-button);
+  --color-slack-badge: var(--slack-notification-badge);
+  --color-slack-online: var(--slack-online-indicator);
+  --color-slack-mention: var(--slack-mention-badge);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     --background: #0a0a0a;
     --foreground: #ededed;
+
+    /* Dark mode Slack overrides */
+    --slack-hover-bg: #222222;
+    --slack-border: #383838;
+    --slack-text-primary: #D1D2D3;
+    --slack-text-secondary: #ABABAD;
+    --slack-thread-bg: #1A1D21;
   }
 }
 
@@ -23,4 +64,142 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+/* ==========================================================================
+   Thread Panel Transition
+   ========================================================================== */
+
+@media (prefers-reduced-motion: no-preference) {
+  .thread-panel-enter {
+    animation: slideInRight 0.2s ease-out;
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* ==========================================================================
+   Modal Overlay
+   ========================================================================== */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--slack-modal-backdrop);
+  z-index: 50;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .modal-backdrop {
+    animation: fadeIn 0.15s ease-out;
+  }
+
+  .modal-content {
+    animation: scaleIn 0.15s ease-out;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    transform: scale(0.95);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* ==========================================================================
+   Status Indicators
+   ========================================================================== */
+
+.status-online {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--slack-online-indicator);
+  border: 2px solid white;
+}
+
+.status-away {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: transparent;
+  border: 2px solid var(--slack-away-indicator);
+}
+
+/* ==========================================================================
+   Activity Feed Items
+   ========================================================================== */
+
+.activity-item {
+  border-left: 3px solid transparent;
+  transition: background-color 0.1s ease;
+}
+
+.activity-item:hover {
+  background: var(--slack-hover-bg);
+}
+
+.activity-item-unread {
+  border-left-color: var(--slack-active-channel);
+  background: #F0F7FF;
+}
+
+/* ==========================================================================
+   Message Hover / Selection
+   ========================================================================== */
+
+.message-hover:hover {
+  background: var(--slack-hover-bg);
+}
+
+.message-hover:hover .message-actions {
+  opacity: 1;
+}
+
+.message-actions {
+  opacity: 0;
+  transition: opacity 0.1s ease;
+}
+
+/* ==========================================================================
+   Custom Scrollbar (Slack-style thin scrollbar)
+   ========================================================================== */
+
+.slack-scrollbar::-webkit-scrollbar {
+  width: 8px;
+}
+
+.slack-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.slack-scrollbar::-webkit-scrollbar-thumb {
+  background: #C1C1C1;
+  border-radius: 4px;
+}
+
+.slack-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #A0A0A0;
 }
