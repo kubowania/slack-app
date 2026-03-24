@@ -25,6 +25,7 @@
 import { useState } from "react";
 import type { Message, ReactionSummary } from "@/lib/types";
 import UserAvatar from "@/app/components/UserAvatar";
+import EmojiPicker from "@/app/components/EmojiPicker";
 
 /* -------------------------------------------------------------------------- */
 /*  Props Interface                                                           */
@@ -302,32 +303,50 @@ export default function MessageBubble({
             💬
           </button>
 
-          {/* Pin message */}
+          {/* Pin message (not yet connected to an action flow) */}
           <button
             type="button"
-            className="p-1 rounded hover:bg-gray-100 text-gray-500 text-xs"
+            className="p-1 rounded hover:bg-gray-100 text-gray-400 text-xs"
             aria-label="Pin message"
+            aria-disabled="true"
           >
             📌
           </button>
 
-          {/* Bookmark / save for later */}
+          {/* Bookmark / save for later (not yet connected to an action flow) */}
           <button
             type="button"
-            className="p-1 rounded hover:bg-gray-100 text-gray-500 text-xs"
+            className="p-1 rounded hover:bg-gray-100 text-gray-400 text-xs"
             aria-label="Save for later"
+            aria-disabled="true"
           >
             🔖
           </button>
 
-          {/* More actions overflow */}
+          {/* More actions overflow (not yet connected to an action flow) */}
           <button
             type="button"
-            className="p-1 rounded hover:bg-gray-100 text-gray-500 text-xs"
+            className="p-1 rounded hover:bg-gray-100 text-gray-400 text-xs"
             aria-label="More actions"
+            aria-disabled="true"
           >
             ⋯
           </button>
+        </div>
+      )}
+
+      {/* Emoji Picker overlay — rendered when reaction button is toggled */}
+      {showReactionPicker && (
+        <div className="absolute top-8 right-4 z-50">
+          <EmojiPicker
+            isOpen={showReactionPicker}
+            onClose={() => setShowReactionPicker(false)}
+            onEmojiSelect={(emoji: string) => {
+              handleReactionClick(emoji);
+              setShowReactionPicker(false);
+            }}
+            position="bottom"
+          />
         </div>
       )}
     </div>

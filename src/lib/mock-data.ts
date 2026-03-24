@@ -52,8 +52,8 @@ export const mockUsers: User[] = [
     created_at: "2024-01-15T10:00:00Z",
     display_name: "Alice Johnson",
     title: "Senior Engineer",
-    status_emoji: "💻",
-    status_text: "Coding",
+    status_emoji: "🏠",
+    status_text: "Working from home",
   },
   {
     id: 2,
@@ -62,8 +62,8 @@ export const mockUsers: User[] = [
     created_at: "2024-01-15T10:00:00Z",
     display_name: "Bob Smith",
     title: "Product Manager",
-    status_emoji: "",
-    status_text: "",
+    status_emoji: "📅",
+    status_text: "In a meeting",
   },
   {
     id: 3,
@@ -945,9 +945,13 @@ export const mockSavedItems: SavedItem[] = [
 export const mockStatuses: UserStatus[] = [
   {
     user_id: 1,
-    status_emoji: "💻",
-    status_text: "Coding",
-    expires_at: "2024-07-15T18:00:00Z",
+    status_emoji: "🏠",
+    status_text: "Working from home",
+  },
+  {
+    user_id: 2,
+    status_emoji: "📅",
+    status_text: "In a meeting",
   },
   {
     user_id: 4,
@@ -975,9 +979,9 @@ export const mockStatuses: UserStatus[] = [
 export const mockWorkspace: Workspace = {
   id: 1,
   name: "Acme Corp",
-  icon_url: undefined,
-  member_count: 8,
-  plan: "free",
+  icon_url: "/acme-icon.png",
+  member_count: 3,
+  plan: "pro",
   created_at: "2024-01-01T00:00:00Z",
 };
 

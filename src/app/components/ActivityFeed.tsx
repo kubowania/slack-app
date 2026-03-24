@@ -502,7 +502,7 @@ export default function ActivityFeed({ currentUserId }: ActivityFeedProps) {
                 return (
                   <div
                     key={activity.id}
-                    className={`activity-item px-6 py-3 border-b border-gray-100 flex items-start gap-3 cursor-pointer ${
+                    className={`activity-item px-6 py-3 border-b border-gray-100 flex items-start gap-3 hover:bg-gray-50 ${
                       isUnread ? "activity-item-unread" : ""
                     }`}
                   >

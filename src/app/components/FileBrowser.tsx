@@ -15,6 +15,16 @@ export interface FileBrowserProps {
   channelId?: number;
 }
 
+/**
+ * Extended FileItem that includes the uploader's username from the API JOIN.
+ * The /api/files and /api/channels/:id/files endpoints return `f.*, u.username`,
+ * so the response includes the username string alongside the numeric uploaded_by FK.
+ */
+interface FileItemWithUploader extends FileItem {
+  /** Uploader's username from the users table JOIN */
+  username?: string;
+}
+
 // =============================================================================
 // Helper Functions
 // =============================================================================
@@ -318,8 +328,8 @@ export default function FileBrowser({ channelId }: FileBrowserProps) {
   // Component State
   // ---------------------------------------------------------------------------
 
-  /** Array of files fetched from the API */
-  const [files, setFiles] = useState<FileItem[]>([]);
+  /** Array of files fetched from the API (includes username from JOIN) */
+  const [files, setFiles] = useState<FileItemWithUploader[]>([]);
 
   /** Whether the initial data fetch is in progress */
   const [loading, setLoading] = useState<boolean>(true);
@@ -353,7 +363,7 @@ export default function FileBrowser({ channelId }: FileBrowserProps) {
         if (!response.ok) {
           throw new Error(`Failed to fetch files: ${response.status}`);
         }
-        const data: FileItem[] = await response.json();
+        const data: FileItemWithUploader[] = await response.json();
         if (!cancelled) {
           setFiles(data);
         }
@@ -373,14 +383,14 @@ export default function FileBrowser({ channelId }: FileBrowserProps) {
     return () => {
       cancelled = true;
     };
-  }, [channelId, filterType]);
+  }, [channelId]);
 
   // ---------------------------------------------------------------------------
   // Derived Data: Filtering and Sorting
   // ---------------------------------------------------------------------------
 
   /** Files after applying the active type filter */
-  const filteredFiles: FileItem[] =
+  const filteredFiles: FileItemWithUploader[] =
     filterType === "all"
       ? files
       : files.filter(
@@ -388,7 +398,7 @@ export default function FileBrowser({ channelId }: FileBrowserProps) {
         );
 
   /** Files after filtering AND sorting by the active sort field */
-  const sortedFiles: FileItem[] = [...filteredFiles].sort((a, b) => {
+  const sortedFiles: FileItemWithUploader[] = [...filteredFiles].sort((a, b) => {
     switch (sortBy) {
       case "name":
         return a.name.localeCompare(b.name);
@@ -644,7 +654,7 @@ export default function FileBrowser({ channelId }: FileBrowserProps) {
                     {getFileTypeLabel(file.file_type)}
                   </span>
                   <span className="text-xs text-gray-400">
-                    Uploaded by user #{file.uploaded_by}
+                    Uploaded by {file.username ?? `user #${file.uploaded_by}`}
                   </span>
                 </div>
               </div>

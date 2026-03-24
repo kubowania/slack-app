@@ -31,14 +31,17 @@ export async function GET(request: NextRequest) {
     const offset = (safePage - 1) * safeLimit;
 
     // Build ILIKE search pattern — "%" matches everything when no search term provided
+    // Escape special ILIKE characters (% and _) to prevent unintended wildcard matching
+    const rawSearch = searchParam ? searchParam.trim() : "";
+    const escapedSearch = rawSearch
+      .replace(/%/g, "\\%")
+      .replace(/_/g, "\\_");
     const searchPattern =
-      searchParam && searchParam.trim().length > 0
-        ? `%${searchParam.trim()}%`
-        : "%";
+      escapedSearch.length > 0 ? `%${escapedSearch}%` : "%";
 
     const result = await query(
       `SELECT c.*, u.username as creator_name,
-        (SELECT COUNT(*) FROM channel_members cm WHERE cm.channel_id = c.id) as member_count
+        (SELECT COUNT(*)::int FROM channel_members cm WHERE cm.channel_id = c.id) as member_count
        FROM channels c
        LEFT JOIN users u ON u.id = c.created_by
        WHERE c.name ILIKE $1

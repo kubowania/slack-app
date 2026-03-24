@@ -12,9 +12,11 @@ export async function GET(
         (SELECT COUNT(*)::int FROM threads t WHERE t.parent_message_id = m.id) as thread_reply_count,
         EXISTS(SELECT 1 FROM pins p WHERE p.message_id = m.id) as is_pinned,
         COALESCE(
-          (SELECT json_agg(json_build_object('emoji', r.emoji, 'count', r.cnt, 'user_ids', r.uids))
-            FROM (SELECT emoji, COUNT(*) as cnt, array_agg(user_id) as uids FROM reactions WHERE message_id = m.id GROUP BY emoji) r),
-          '[]'
+          (SELECT json_agg(json_build_object('emoji', r.emoji, 'count', r.cnt, 'users', r.user_details))
+            FROM (SELECT emoji, COUNT(*)::int as cnt,
+              json_agg(json_build_object('id', ru.id, 'username', ru.username, 'avatar_color', ru.avatar_color)) as user_details
+              FROM reactions JOIN users ru ON ru.id = reactions.user_id WHERE message_id = m.id GROUP BY emoji) r),
+          '[]'::json
         ) as reaction_summary
       FROM messages m
       JOIN users u ON u.id = m.user_id

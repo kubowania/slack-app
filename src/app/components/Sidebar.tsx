@@ -335,6 +335,8 @@ export default function Sidebar({
                 className="text-gray-300 hover:text-white text-lg leading-none"
                 type="button"
                 aria-label="Start new direct message"
+                aria-disabled="true"
+                title="DM creation coming soon"
               >
                 +
               </button>

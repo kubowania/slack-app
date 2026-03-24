@@ -44,8 +44,8 @@ export interface HuddleOverlayProps {
 /* -------------------------------------------------------------------------- */
 
 const DEFAULT_PARTICIPANTS: User[] = [
-  { id: 1, username: "alice", avatar_color: "#4A154B" },
-  { id: 2, username: "bob", avatar_color: "#36C5F0" },
+  { id: 1, username: "alice", avatar_color: "#4A154B", created_at: "2024-01-15T10:00:00Z" },
+  { id: 2, username: "bob", avatar_color: "#36C5F0", created_at: "2024-01-15T10:00:00Z" },
 ];
 
 /* -------------------------------------------------------------------------- */

@@ -419,11 +419,9 @@ export default function PeopleDirectory({
                     );
                   })()}
 
-                  {/* Message action button */}
+                  {/* Message action indicator — outer button provides interactive semantics */}
                   <span
                     className="text-sm text-[#1164A3] hover:underline whitespace-nowrap"
-                    role="link"
-                    tabIndex={-1}
                     aria-label={`Message ${displayName}`}
                   >
                     Message
