@@ -3,7 +3,12 @@ import { query } from "@/lib/db";
 
 export async function GET() {
   try {
-    const result = await query("SELECT * FROM users ORDER BY username");
+    const result = await query(
+      `SELECT u.*, us.emoji as status_emoji, us.text as status_text, us.display_name, us.title
+       FROM users u
+       LEFT JOIN user_statuses us ON us.user_id = u.id
+       ORDER BY u.username`
+    );
     return NextResponse.json(result.rows);
   } catch (err) {
     console.error("Failed to fetch users:", err);
