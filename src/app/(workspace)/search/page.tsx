@@ -1,11 +1,13 @@
 /**
  * Search Results Page — Server Component
  *
- * Renders the SearchResults component with the initial query extracted from
- * the URL search parameters. The SearchResults component handles all client-side
- * search interaction, filtering, and result display.
+ * Next.js App Router page for the /search route within the (workspace)
+ * route group. Reads the URL search parameters (q for query, type for
+ * filter) and delegates all search UI rendering — query input, filter
+ * tabs, result cards, loading/empty states — to the SearchResults
+ * client component.
  *
- * URL: /(workspace)/search?q=<query>
+ * URL: /search?q=<query>&type=<messages|files|channels|people>
  */
 
 import SearchResults from "@/app/components/SearchResults";
@@ -13,9 +15,8 @@ import SearchResults from "@/app/components/SearchResults";
 export default async function SearchPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string }>;
+  searchParams: Promise<{ q?: string; type?: string }>;
 }) {
-  const { q } = await searchParams;
-
-  return <SearchResults initialQuery={q ?? ""} />;
+  const params = await searchParams;
+  return <SearchResults initialQuery={params.q || ""} />;
 }
