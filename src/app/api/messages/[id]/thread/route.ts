@@ -1,6 +1,19 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 
+/**
+ * GET /api/messages/:id/thread
+ *
+ * Retrieves all replies in a thread by looking up the junction rows in the
+ * `threads` table that link the parent message to its reply messages.
+ *
+ * Path parameter:
+ *   - id: The parent message ID whose thread replies to fetch
+ *
+ * Returns:
+ *   - 200: Array of reply messages with user metadata, ordered by created_at ASC
+ *   - 500: Database or server error
+ */
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -60,11 +73,11 @@ export async function POST(
       [channel_id, user_id, content]
     );
 
-    // Step 3: Insert thread relationship
+    // Step 3: Insert thread relationship (includes channel_id which is NOT NULL)
     await query(
-      `INSERT INTO threads (parent_message_id, reply_message_id)
-       VALUES ($1, $2)`,
-      [id, insertResult.rows[0].id]
+      `INSERT INTO threads (parent_message_id, reply_message_id, channel_id)
+       VALUES ($1, $2, $3)`,
+      [id, insertResult.rows[0].id, channel_id]
     );
 
     // Step 4: Return enriched reply with user info

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useId } from "react";
 
 /**
  * Props interface for the ModalDialog component.
@@ -37,9 +37,6 @@ const SIZE_CLASSES: Record<NonNullable<ModalDialogProps["size"]>, string> = {
   xl: "max-w-2xl",
 };
 
-/** Stable ID for the modal title element, used by aria-labelledby */
-const MODAL_TITLE_ID = "modal-dialog-title";
-
 /**
  * ModalDialog — Reusable modal shell component with backdrop overlay, header,
  * scrollable content area, and optional footer.
@@ -64,6 +61,9 @@ export default function ModalDialog({
   showCloseButton = true,
   footer,
 }: ModalDialogProps) {
+  /** Unique ID per instance for the modal title element, used by aria-labelledby */
+  const modalTitleId = useId();
+
   /** Reference to the modal content container for focus management */
   const modalContentRef = useRef<HTMLDivElement>(null);
 
@@ -187,14 +187,14 @@ export default function ModalDialog({
         ref={modalContentRef}
         role="dialog"
         aria-modal="true"
-        aria-labelledby={MODAL_TITLE_ID}
+        aria-labelledby={modalTitleId}
         tabIndex={-1}
         className={`modal-content ${SIZE_CLASSES[size]} w-full bg-white rounded-xl shadow-2xl overflow-hidden max-h-[85vh] flex flex-col`}
         onClick={handleContentClick}
       >
         {/* Header — title and optional close button */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-          <h2 id={MODAL_TITLE_ID} className="text-lg font-bold text-gray-900">
+          <h2 id={modalTitleId} className="text-lg font-bold text-gray-900">
             {title}
           </h2>
           {showCloseButton && (

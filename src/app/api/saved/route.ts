@@ -107,7 +107,7 @@ export async function POST(req: Request) {
  *   - id (required): The ID of the saved item to remove
  *
  * Returns:
- *   - 200: The deleted saved item record
+ *   - 204: No Content — item successfully deleted
  *   - 400: Missing id parameter
  *   - 404: Saved item not found
  *   - 500: Database or server error
@@ -125,7 +125,7 @@ export async function DELETE(req: Request) {
     }
 
     const result = await query(
-      "DELETE FROM saved_items WHERE id = $1 RETURNING *",
+      "DELETE FROM saved_items WHERE id = $1 RETURNING id",
       [id]
     );
 
@@ -136,7 +136,7 @@ export async function DELETE(req: Request) {
       );
     }
 
-    return NextResponse.json(result.rows[0]);
+    return new NextResponse(null, { status: 204 });
   } catch (err) {
     console.error("Failed to delete saved item:", err);
     return NextResponse.json(

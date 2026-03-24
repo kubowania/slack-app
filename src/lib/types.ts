@@ -79,7 +79,7 @@ export interface Channel {
 /**
  * Aggregated reaction data for display on a message.
  *
- * Groups reactions by emoji with a count and list of user IDs who reacted.
+ * Groups reactions by emoji with a count and list of user objects who reacted.
  * Defined before Message because Message references this type.
  */
 export interface ReactionSummary {
@@ -87,8 +87,8 @@ export interface ReactionSummary {
   emoji: string;
   /** Total number of users who added this reaction */
   count: number;
-  /** Array of user IDs who added this reaction */
-  user_ids: number[];
+  /** Array of user objects who added this reaction (matches reactions API response) */
+  users: { id: number; username: string; avatar_color: string }[];
 }
 
 /**
@@ -225,14 +225,14 @@ export interface FileItem {
   id: number;
   /** Original filename including extension */
   name: string;
-  /** MIME type or file category (e.g., 'image/png', 'application/pdf') */
-  type: string;
-  /** File size in bytes */
-  size: number;
+  /** MIME type or file category (e.g., 'pdf', 'image', 'markdown') — matches DB column `file_type` */
+  file_type: string;
+  /** File size in bytes — matches DB column `file_size` */
+  file_size: number;
+  /** User who uploaded this file (FK to users table) — matches DB column `uploaded_by` */
+  uploaded_by: number;
   /** Channel where this file was shared (FK to channels table) */
   channel_id: number;
-  /** User who uploaded this file (FK to users table) */
-  user_id: number;
   /** Timestamp when the file was uploaded (ISO 8601) */
   created_at: string;
   /** URL to a thumbnail preview of the file */
@@ -274,12 +274,12 @@ export interface SavedItem {
 export interface UserStatus {
   /** User this status belongs to (FK to users table) */
   user_id: number;
-  /** Emoji representing the status (e.g., '🏠', '🤒', '🌴') */
-  emoji: string;
-  /** Descriptive text for the status (e.g., 'Working from home') */
-  text: string;
-  /** Timestamp when this status expires and should be cleared (ISO 8601) */
-  expiry?: string;
+  /** Emoji representing the status (e.g., '🏠', '🤒', '🌴') — matches DB column `status_emoji` */
+  status_emoji: string;
+  /** Descriptive text for the status (e.g., 'Working from home') — matches DB column `status_text` */
+  status_text: string;
+  /** Timestamp when this status expires and should be cleared (ISO 8601) — matches DB column `expires_at` */
+  expires_at?: string;
 }
 
 /**
@@ -334,28 +334,20 @@ export interface Workspace {
 export interface UserPreferences {
   /** User these preferences belong to (FK to users table) */
   user_id: number;
-  /** Notification delivery settings */
-  notification_settings: {
-    /** Whether desktop notifications are enabled */
-    desktop: boolean;
-    /** Whether mobile push notifications are enabled */
-    mobile: boolean;
-    /** Email notification frequency ('instant', 'hourly', 'daily', 'never') */
-    email_frequency: string;
-    /** Whether all notifications are muted */
-    mute_all: boolean;
-  };
-  /** Sidebar display configuration */
-  sidebar_config: {
-    /** Whether to show all channels or only joined channels */
-    show_all_channels: boolean;
-    /** Sort order for sidebar items ('alpha', 'recent', 'priority') */
-    sort_order: string;
-    /** Array of sidebar section IDs that are collapsed */
-    collapsed_sections: string[];
-  };
-  /** Visual theme identifier ('light', 'dark', 'system', or custom theme name) */
+  /** Whether notification sounds are enabled — matches DB column `notification_sound` */
+  notification_sound: boolean;
+  /** Whether desktop notifications are enabled — matches DB column `notification_desktop` */
+  notification_desktop: boolean;
+  /** Sort order for sidebar items ('alpha', 'recent', 'priority') — matches DB column `sidebar_sort` */
+  sidebar_sort: string;
+  /** Visual theme identifier ('light', 'dark', 'system') — matches DB column `theme` */
   theme: string;
+  /** User's preferred language code (e.g., 'en') — matches DB column `language` */
+  language: string;
+  /** User's preferred timezone (e.g., 'UTC', 'America/New_York') — matches DB column `timezone` */
+  timezone: string;
+  /** Timestamp when preferences were last updated (ISO 8601) */
+  updated_at?: string;
 }
 
 // =============================================================================
@@ -390,10 +382,12 @@ export interface Mention {
   id: number;
   /** Message containing the mention (FK to messages table) */
   message_id: number;
-  /** User who was mentioned (FK to users table) */
-  user_id: number;
+  /** User who was mentioned (FK to users table) — matches DB column `mentioned_user_id` */
+  mentioned_user_id: number;
   /** Channel where the mention occurred (FK to channels table) */
   channel_id: number;
+  /** Whether the mentioned user has read the mention — matches DB column `read` */
+  read: boolean;
   /** Timestamp when the mention was created (ISO 8601) */
   created_at: string;
 }
@@ -458,8 +452,8 @@ export interface PinnedMessage {
   channel_id: number;
   /** User who pinned the message (FK to users table) */
   pinned_by: number;
-  /** Timestamp when the message was pinned (ISO 8601) */
-  pinned_at: string;
+  /** Timestamp when the message was pinned (ISO 8601) — matches DB column `created_at` */
+  created_at: string;
 }
 
 /**

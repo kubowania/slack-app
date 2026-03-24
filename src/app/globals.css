@@ -29,6 +29,7 @@
   --slack-thread-bg: #FFFFFF;
   --slack-modal-backdrop: rgba(0, 0, 0, 0.5);
   --slack-tooltip-bg: #1D1C1D;
+  --slack-unread-bg: #F0F7FF;
 }
 
 @theme inline {
@@ -163,7 +164,7 @@ body {
 
 .activity-item-unread {
   border-left-color: var(--slack-active-channel);
-  background: #F0F7FF;
+  background: var(--slack-unread-bg);
 }
 
 /* ==========================================================================

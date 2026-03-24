@@ -140,6 +140,25 @@ export async function POST(req: Request) {
       );
     }
 
+    // Pre-flight validation: verify all provided user IDs exist in the users table
+    const numericIds = member_ids.map((id) => Number(id));
+    const existingUsers = await query(
+      `SELECT id FROM users WHERE id = ANY($1)`,
+      [numericIds]
+    );
+    const existingUserIds = new Set(
+      existingUsers.rows.map((row: { id: number }) => row.id)
+    );
+    const invalidIds = numericIds.filter((id) => !existingUserIds.has(id));
+    if (invalidIds.length > 0) {
+      return NextResponse.json(
+        {
+          error: `Invalid user IDs: ${invalidIds.join(", ")}. Users do not exist.`,
+        },
+        { status: 400 }
+      );
+    }
+
     // Determine if this is a group DM (more than 2 participants)
     const isGroup = member_ids.length > 2;
     const createdBy = member_ids[0] as number;

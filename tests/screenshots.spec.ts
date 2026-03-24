@@ -17,7 +17,7 @@
  *
  * @see https://playwright.dev/docs/api/class-page#page-screenshot
  */
-import { test, expect, type Page } from '@playwright/test';
+import { test, type Page } from '@playwright/test';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -60,8 +60,7 @@ async function captureScreenshot(page: Page, filename: string): Promise<void> {
   const path = `${SCREENSHOT_DIR}/${filename}`;
   await page.screenshot({ path, fullPage: true });
   // Playwright throws if the screenshot cannot be written, so reaching this
-  // line implicitly asserts the capture succeeded.
-  expect(true).toBe(true);
+  // line implicitly asserts the capture succeeded. No additional assertion needed.
 }
 
 /**

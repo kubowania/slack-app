@@ -47,6 +47,7 @@ CREATE TABLE messages (
 CREATE TABLE threads (
   id SERIAL PRIMARY KEY,
   parent_message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+  reply_message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
   channel_id INTEGER NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
   reply_count INTEGER DEFAULT 0,
   last_reply_at TIMESTAMP DEFAULT NOW(),
@@ -168,6 +169,7 @@ CREATE INDEX idx_messages_created ON messages(created_at);
 
 -- Indexes for new tables
 CREATE INDEX idx_threads_parent ON threads(parent_message_id);
+CREATE INDEX idx_threads_reply ON threads(reply_message_id);
 CREATE INDEX idx_threads_channel ON threads(channel_id);
 CREATE INDEX idx_reactions_message ON reactions(message_id);
 CREATE INDEX idx_pins_channel ON pins(channel_id);
@@ -222,16 +224,20 @@ INSERT INTO channel_members (channel_id, user_id, role) VALUES
   (2, 1, 'member'), (2, 2, 'admin'), (2, 3, 'member'),
   (3, 2, 'admin'), (3, 3, 'member');
 
--- Threads referencing existing messages (message 1 in #general, message 6 in #engineering)
-INSERT INTO threads (parent_message_id, channel_id, reply_count, last_reply_at) VALUES
-  (1, 1, 2, NOW()),
-  (6, 3, 1, NOW());
-
 -- Thread reply messages (new messages serving as thread replies)
+-- These become message IDs 8, 9, 10 (after the existing 7 messages)
 INSERT INTO messages (channel_id, user_id, content) VALUES
   (1, 2, 'Thanks Alice, great to be here!'),
   (1, 3, 'Welcome channel is the best!'),
   (3, 3, 'Looks good! Ship it!');
+
+-- Threads: junction table linking parent messages to their reply messages
+-- Message 1 (general: "Welcome to the general channel!") has 2 replies (messages 8, 9)
+-- Message 6 (engineering: "Just pushed the new deployment pipeline.") has 1 reply (message 10)
+INSERT INTO threads (parent_message_id, reply_message_id, channel_id, reply_count, last_reply_at) VALUES
+  (1, 8, 1, 2, NOW()),
+  (1, 9, 1, 2, NOW()),
+  (6, 10, 3, 1, NOW());
 
 -- Reactions on existing messages
 INSERT INTO reactions (message_id, user_id, emoji) VALUES

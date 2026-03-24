@@ -120,7 +120,7 @@ export async function GET(req: Request) {
         const fileResult = await query(
           `SELECT f.*, u.username AS uploaded_by_name
            FROM files f
-           JOIN users u ON u.id = f.user_id
+           JOIN users u ON u.id = f.uploaded_by
            WHERE f.name ILIKE $1
            ORDER BY f.created_at DESC
            LIMIT 20`,

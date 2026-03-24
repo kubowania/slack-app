@@ -80,7 +80,8 @@ export async function GET(req: Request) {
 
         UNION ALL
 
-        -- Thread replies: replies in threads whose parent was authored by this user
+        -- Thread replies: messages that are reply_message_id entries in threads
+        -- whose parent message was authored by the target user
         SELECT
           msg.id AS id,
           'thread_reply' AS type,
@@ -92,15 +93,13 @@ export async function GET(req: Request) {
           u.username AS username,
           u.avatar_color AS avatar_color,
           c.name AS channel_name
-        FROM messages msg
-        JOIN threads t ON t.channel_id = msg.channel_id
-          AND t.parent_message_id IN (
-            SELECT m2.id FROM messages m2 WHERE m2.user_id = $1
-          )
+        FROM threads t
+        JOIN messages msg ON msg.id = t.reply_message_id
+        JOIN messages parent ON parent.id = t.parent_message_id
         JOIN users u ON u.id = msg.user_id
         JOIN channels c ON c.id = msg.channel_id
-        WHERE msg.user_id != $1
-          AND msg.id != t.parent_message_id
+        WHERE parent.user_id = $1
+          AND msg.user_id != $1
 
         UNION ALL
 
