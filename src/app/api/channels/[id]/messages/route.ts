@@ -8,11 +8,18 @@ export async function GET(
   const { id } = await params;
   try {
     const result = await query(
-      `SELECT m.*, u.username, u.avatar_color
-       FROM messages m
-       JOIN users u ON u.id = m.user_id
-       WHERE m.channel_id = $1
-       ORDER BY m.created_at ASC`,
+      `SELECT m.*, u.username, u.avatar_color,
+        (SELECT COUNT(*) FROM threads t WHERE t.parent_message_id = m.id) as thread_reply_count,
+        EXISTS(SELECT 1 FROM pins p WHERE p.message_id = m.id) as is_pinned,
+        COALESCE(
+          (SELECT json_agg(json_build_object('emoji', r.emoji, 'count', r.cnt, 'user_ids', r.uids))
+            FROM (SELECT emoji, COUNT(*) as cnt, array_agg(user_id) as uids FROM reactions WHERE message_id = m.id GROUP BY emoji) r),
+          '[]'
+        ) as reaction_summary
+      FROM messages m
+      JOIN users u ON u.id = m.user_id
+      WHERE m.channel_id = $1
+      ORDER BY m.created_at ASC`,
       [id]
     );
     return NextResponse.json(result.rows);
