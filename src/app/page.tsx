@@ -15,5 +15,5 @@ import { redirect } from "next/navigation";
  * route group, preserving the original user flow.
  */
 export default function Home() {
-  redirect("/(workspace)/channel/1");
+  redirect("/channel/1");
 }
