@@ -1,17 +1,17 @@
 "use client";
 
 /**
- * Workspace Layout
+ * src/app/(workspace)/layout.tsx — Workspace Route Group Shared Layout
  *
- * Shared layout for all workspace routes under the (workspace) route group.
- * Provides the persistent sidebar navigation alongside the main content area.
+ * Wraps ALL workspace page routes. Renders the persistent Sidebar navigation
+ * on the left and the main content area (flex-1) on the right. The (workspace)
+ * parenthesized folder name is a Next.js route group — no URL segment is added.
  *
  * Responsibilities:
- * - Consumes WorkspaceProvider context (users, channels, currentUser, workspace)
- * - Fetches DM conversations independently (not in provider)
- * - Derives active navigation state from the current URL pathname
- * - Provides channel creation handler with optimistic list refresh
- * - Renders two-column flex layout: Sidebar (fixed 256px) + main (flex-1)
+ *   - Manages shared state for users, channels, currentUser, DMs, and workspace
+ *   - Fetches initial data from /api/users, /api/channels, /api/workspace, /api/dms
+ *   - Provides channel creation handler to the Sidebar
+ *   - Renders two-column flex layout: Sidebar (w-64 handled internally) + main (flex-1)
  *
  * Layout structure:
  *   ┌──────────┬───────────────────────────┐
@@ -20,216 +20,182 @@
  *   │ (w-64)   │   (flex-1)               │
  *   │          │                           │
  *   └──────────┴───────────────────────────┘
+ *
+ * State management is extracted from the original monolithic page.tsx
+ * (lines 28-35 for state, 39-52 for fetching, 91-108 for channel creation).
+ * No polling happens here — message polling belongs to individual page routes.
  */
 
-import { useState, useEffect, useCallback, useMemo } from "react";
-import { usePathname } from "next/navigation";
+import { useState, useEffect, useCallback } from "react";
 import Sidebar from "@/app/components/Sidebar";
-import StatusSelector from "@/app/components/StatusSelector";
-import HuddleOverlay from "@/app/components/HuddleOverlay";
-import { useWorkspace } from "@/app/providers";
-import type { Channel, DirectMessage } from "@/lib/types";
+import type { User, Channel, DirectMessage, Workspace } from "@/lib/types";
 
+/**
+ * WorkspaceLayout — Default export for the (workspace) route group layout.
+ *
+ * Receives children from Next.js App Router and renders them inside the main
+ * content area alongside the persistent Sidebar component.
+ */
 export default function WorkspaceLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  /* ---------------------------------------------------------------------- */
-  /* Context & State                                                         */
-  /* ---------------------------------------------------------------------- */
+  /* ======================================================================== */
+  /* State Management (extracted from page.tsx lines 28-35)                    */
+  /* ======================================================================== */
 
-  const {
-    currentUser,
-    setCurrentUser,
-    users,
-    channels: providerChannels,
-    workspace,
-  } = useWorkspace();
+  /** All workspace users for the user-switcher dropdown in the Sidebar */
+  const [users, setUsers] = useState<User[]>([]);
 
-  const pathname = usePathname();
+  /** All channels displayed in the Sidebar channels section */
+  const [channels, setChannels] = useState<Channel[]>([]);
 
-  /**
-   * Local channels state — initially null so we fall through to the provider's
-   * channels. After a channel is created the local state is populated with a
-   * fresh fetch so the sidebar immediately reflects the new channel.
-   */
-  const [localChannels, setLocalChannels] = useState<Channel[] | null>(null);
+  /** Currently selected user — null before initial load completes */
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
 
-  /**
-   * DM conversations — fetched independently since WorkspaceProvider does not
-   * include DMs in its context.
-   */
+  /** DM conversations list for the Sidebar direct messages section */
   const [dms, setDms] = useState<DirectMessage[]>([]);
 
-  /** Effective channels list: local override or provider data */
-  const channels = localChannels ?? providerChannels;
+  /** Workspace metadata displayed in the Sidebar header */
+  const [workspace, setWorkspace] = useState<Workspace | null>(null);
 
-  /** Status selector visibility toggle */
-  const [showStatusSelector, setShowStatusSelector] = useState(false);
+  /* ======================================================================== */
+  /* Data Fetching (extracted from page.tsx lines 39-52, extended)             */
+  /* ======================================================================== */
 
-  /** Huddle overlay visibility toggle */
-  const [showHuddle, setShowHuddle] = useState(false);
-
-  /* ---------------------------------------------------------------------- */
-  /* Data Fetching                                                           */
-  /* ---------------------------------------------------------------------- */
-
-  /** Fetch DM conversations on mount */
+  /**
+   * Fetch all initial data on component mount.
+   *
+   * Users and channels are essential — they drive the sidebar content and user
+   * switcher. Workspace and DMs have graceful fallbacks since those endpoints
+   * may not exist during incremental development.
+   */
   useEffect(() => {
-    fetch("/api/dms")
+    /* Fetch all users and set the first as the current user */
+    fetch("/api/users")
       .then((res) => {
-        if (!res.ok) throw new Error("DM fetch failed");
+        if (!res.ok) throw new Error("Users fetch failed");
         return res.json();
       })
-      .then((data: DirectMessage[]) => setDms(data))
+      .then((data: User[]) => {
+        setUsers(data);
+        if (data.length > 0) {
+          setCurrentUser(data[0]);
+        }
+      })
       .catch(() => {
-        /* Graceful degradation — sidebar shows no DMs */
+        /* Graceful degradation — sidebar shows empty user list */
+      });
+
+    /* Fetch all channels */
+    fetch("/api/channels")
+      .then((res) => {
+        if (!res.ok) throw new Error("Channels fetch failed");
+        return res.json();
+      })
+      .then((data: Channel[]) => {
+        setChannels(data);
+      })
+      .catch(() => {
+        /* Graceful degradation — sidebar shows empty channel list */
+      });
+
+    /* Fetch workspace metadata (fallback if endpoint not available) */
+    fetch("/api/workspace")
+      .then((res) => {
+        if (!res.ok) throw new Error("Workspace fetch failed");
+        return res.json();
+      })
+      .then((data: Workspace) => {
+        setWorkspace(data);
+      })
+      .catch(() => {
+        setWorkspace({
+          id: 1,
+          name: "Slack Clone",
+          member_count: 0,
+          plan: "free",
+          created_at: "",
+        });
+      });
+
+    /* Fetch DM conversations (fallback if endpoint not available) */
+    fetch("/api/dms")
+      .then((res) => {
+        if (!res.ok) throw new Error("DMs fetch failed");
+        return res.json();
+      })
+      .then((data: DirectMessage[]) => {
+        setDms(data);
+      })
+      .catch(() => {
+        setDms([]);
       });
   }, []);
 
-  /* ---------------------------------------------------------------------- */
-  /* URL-derived Active State                                                */
-  /* ---------------------------------------------------------------------- */
+  /* ======================================================================== */
+  /* Channel Creation Handler (extracted from page.tsx lines 91-108)           */
+  /* ======================================================================== */
 
   /**
-   * Derive which channel, DM, or section is active from the pathname.
+   * Handles new channel creation. Posts to /api/channels with the given name
+   * and the current user as the creator. On success, appends the new channel
+   * to the channels state so the Sidebar updates immediately.
    *
-   * Pathname patterns:
-   *   /channel/3        → activeChannelId = 3
-   *   /dm/2             → activeDmId = 2
-   *   /activity         → activeSection = "activity"
-   *   /search           → activeSection = "search"
-   *   /files            → activeSection = "files"
-   *   /saved            → activeSection = "saved"
-   *   /people           → activeSection = "people"
-   *   /canvas           → activeSection = "canvas"
-   *   /channels/browse  → activeSection = "channels/browse"
-   *   /preferences      → activeSection = "preferences"
-   *   /thread/5         → activeSection = "thread"
+   * Memoized with useCallback to prevent unnecessary re-renders when passed
+   * as a prop to the Sidebar component.
    */
-  const { activeChannelId, activeDmId, activeSection } = useMemo(() => {
-    let channelId: number | undefined;
-    let dmId: number | undefined;
-    let section: string | undefined;
-
-    // Match /channel/{id}
-    const channelMatch = pathname.match(/\/channel\/(\d+)/);
-    if (channelMatch) {
-      channelId = parseInt(channelMatch[1], 10);
-    }
-
-    // Match /dm/{id}
-    const dmMatch = pathname.match(/\/dm\/(\d+)/);
-    if (dmMatch) {
-      dmId = parseInt(dmMatch[1], 10);
-    }
-
-    // Match section paths
-    if (pathname.startsWith("/activity")) section = "activity";
-    else if (pathname.startsWith("/search")) section = "search";
-    else if (pathname.startsWith("/files")) section = "files";
-    else if (pathname.startsWith("/saved")) section = "saved";
-    else if (pathname.startsWith("/people")) section = "people";
-    else if (pathname.startsWith("/canvas")) section = "canvas";
-    else if (pathname.startsWith("/channels/browse"))
-      section = "channels/browse";
-    else if (pathname.startsWith("/preferences")) section = "preferences";
-    else if (pathname.startsWith("/thread")) section = "thread";
-    else if (pathname.startsWith("/dm")) section = "dms";
-    else if (pathname.startsWith("/channel") || pathname === "/")
-      section = "home";
-
-    return {
-      activeChannelId: channelId,
-      activeDmId: dmId,
-      activeSection: section,
-    };
-  }, [pathname]);
-
-  /* ---------------------------------------------------------------------- */
-  /* Handlers                                                                */
-  /* ---------------------------------------------------------------------- */
-
-  /**
-   * Channel creation handler. Posts to /api/channels with the given name, then
-   * re-fetches the full channel list so the sidebar updates immediately.
-   */
-  const handleChannelCreate = useCallback(
+  const handleCreateChannel = useCallback(
     async (name: string) => {
-      if (!currentUser) return;
+      if (!name.trim() || !currentUser) return;
+
       try {
-        const createRes = await fetch("/api/channels", {
+        const res = await fetch("/api/channels", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name, created_by: currentUser.id }),
+          body: JSON.stringify({
+            name,
+            created_by: currentUser.id,
+          }),
         });
-        if (!createRes.ok) return;
 
-        // Re-fetch full channel list to ensure consistency
-        const listRes = await fetch("/api/channels");
-        if (listRes.ok) {
-          const data: Channel[] = await listRes.json();
-          setLocalChannels(data);
-        }
+        if (!res.ok) return;
+
+        const channel: Channel = await res.json();
+        setChannels((prev) => [...prev, channel]);
       } catch {
-        /* Silent — channel creation failed */
+        /* Silent failure — channel creation failed, sidebar unchanged */
       }
     },
     [currentUser]
   );
 
-  /* ---------------------------------------------------------------------- */
-  /* Render                                                                  */
-  /* ---------------------------------------------------------------------- */
+  /* ======================================================================== */
+  /* Render — Two-column flex layout                                           */
+  /* ======================================================================== */
 
   return (
     <div className="flex h-full">
-      {/* Persistent Sidebar Navigation */}
+      {/* Persistent Sidebar Navigation — handles its own w-64 width and
+          Slack purple (#3F0E40) background styling internally */}
       <Sidebar
         users={users}
         channels={channels}
         dms={dms}
         currentUser={currentUser}
-        activeChannelId={activeChannelId}
-        activeDmId={activeDmId}
-        activeSection={activeSection}
         onUserChange={setCurrentUser}
-        onChannelCreate={handleChannelCreate}
+        onChannelCreate={handleCreateChannel}
         workspace={workspace ?? undefined}
       />
 
-      {/* Main Content Area — page routes render here */}
+      {/* Main Content Area — page routes render here.
+          Matches page.tsx line 183: flex-1 flex flex-col bg-white.
+          overflow-hidden prevents content from spilling outside the viewport
+          (root layout body is h-screen overflow-hidden). */}
       <main className="flex-1 flex flex-col bg-white overflow-hidden">
         {children}
       </main>
-
-      {/* Status Selector Overlay (toggle via sidebar interaction) */}
-      {showStatusSelector && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/50"
-            onClick={() => setShowStatusSelector(false)}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") setShowStatusSelector(false);
-            }}
-            role="button"
-            tabIndex={0}
-            aria-label="Close status selector"
-          />
-          <div className="relative z-10">
-            <StatusSelector
-              onStatusChange={() => setShowStatusSelector(false)}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Huddle / Call Overlay (visual mockup only) */}
-      <HuddleOverlay
-        isOpen={showHuddle}
-        onClose={() => setShowHuddle(false)}
-      />
     </div>
   );
 }
