@@ -10,7 +10,7 @@ export async function GET(
     const result = await query(
       `SELECT f.*, u.username
        FROM files f
-       JOIN users u ON u.id = f.user_id
+       JOIN users u ON u.id = f.uploaded_by
        WHERE f.channel_id = $1
        ORDER BY f.created_at DESC`,
       [id]

@@ -8,9 +8,10 @@ export async function GET(
   const { id } = await params;
   try {
     const result = await query(
-      `SELECT cm.*, u.username, u.avatar_color, u.display_name
+      `SELECT cm.*, u.username, u.avatar_color, us.display_name
        FROM channel_members cm
        JOIN users u ON u.id = cm.user_id
+       LEFT JOIN user_statuses us ON us.user_id = u.id
        WHERE cm.channel_id = $1
        ORDER BY cm.joined_at ASC`,
       [id]
@@ -67,11 +68,18 @@ export async function DELETE(
         { status: 400 }
       );
     }
-    await query(
+    const result = await query(
       `DELETE FROM channel_members
-       WHERE channel_id = $1 AND user_id = $2`,
+       WHERE channel_id = $1 AND user_id = $2
+       RETURNING *`,
       [id, user_id]
     );
+    if (result.rowCount === 0) {
+      return NextResponse.json(
+        { error: "Member not found in channel" },
+        { status: 404 }
+      );
+    }
     return NextResponse.json({ success: true });
   } catch (err) {
     console.error("Failed to remove channel member:", err);

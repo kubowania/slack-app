@@ -9,7 +9,7 @@ export async function GET(
   try {
     const result = await query(
       `SELECT m.*, u.username, u.avatar_color,
-        (SELECT COUNT(*) FROM threads t WHERE t.parent_message_id = m.id) as thread_reply_count,
+        (SELECT COUNT(*)::int FROM threads t WHERE t.parent_message_id = m.id) as thread_reply_count,
         EXISTS(SELECT 1 FROM pins p WHERE p.message_id = m.id) as is_pinned,
         COALESCE(
           (SELECT json_agg(json_build_object('emoji', r.emoji, 'count', r.cnt, 'user_ids', r.uids))

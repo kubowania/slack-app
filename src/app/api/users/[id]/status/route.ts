@@ -43,12 +43,12 @@ export async function PUT(
       );
     }
     const result = await query(
-      `INSERT INTO user_statuses (user_id, emoji, text, expiry)
+      `INSERT INTO user_statuses (user_id, status_emoji, status_text, expires_at)
        VALUES ($1, $2, $3, $4)
        ON CONFLICT (user_id) DO UPDATE
-       SET emoji = EXCLUDED.emoji,
-           text = EXCLUDED.text,
-           expiry = EXCLUDED.expiry,
+       SET status_emoji = EXCLUDED.status_emoji,
+           status_text = EXCLUDED.status_text,
+           expires_at = EXCLUDED.expires_at,
            updated_at = NOW()
        RETURNING *`,
       [id, emoji, text, expiry || null]

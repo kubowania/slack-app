@@ -5,7 +5,7 @@ export async function GET() {
   try {
     const result = await query(
       `SELECT c.*, u.username as creator_name,
-        (SELECT COUNT(*) FROM channel_members cm WHERE cm.channel_id = c.id) as member_count,
+        (SELECT COUNT(*)::int FROM channel_members cm WHERE cm.channel_id = c.id) as member_count,
         0 as unread_count,
         (SELECT content FROM messages m2 WHERE m2.channel_id = c.id ORDER BY m2.created_at DESC LIMIT 1) as last_message_preview
        FROM channels c

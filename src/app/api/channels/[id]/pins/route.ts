@@ -13,7 +13,7 @@ export async function GET(
        JOIN messages m ON m.id = p.message_id
        JOIN users u ON u.id = m.user_id
        WHERE p.channel_id = $1
-       ORDER BY p.pinned_at DESC`,
+       ORDER BY p.created_at DESC`,
       [id]
     );
     return NextResponse.json(result.rows);

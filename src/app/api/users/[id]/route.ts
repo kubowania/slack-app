@@ -26,7 +26,7 @@ export async function GET(
   try {
     const result = await query(
       `SELECT u.id, u.username, u.avatar_color, u.created_at,
-              us.emoji AS status_emoji, us.text AS status_text,
+              us.status_emoji, us.status_text,
               us.display_name, us.title, us.timezone, us.email, us.phone
        FROM users u
        LEFT JOIN user_statuses us ON us.user_id = u.id

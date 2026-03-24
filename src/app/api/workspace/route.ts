@@ -4,7 +4,7 @@ import { query } from "@/lib/db";
 export async function GET() {
   try {
     const result = await query(
-      `SELECT w.*, (SELECT COUNT(*) FROM users) as member_count FROM workspace w LIMIT 1`
+      `SELECT w.*, (SELECT COUNT(*)::int FROM users) as member_count FROM workspace w LIMIT 1`
     );
 
     if (result.rows.length === 0) {
