@@ -1,21 +1,34 @@
 "use client";
 
 /**
- * Channel Message View — Primary workspace page
+ * Channel Message View — Primary workspace page route
  *
- * Renders the full channel experience: channel header with member count and
- * action icons, optional bookmarks bar, scrollable message list with reactions
- * and thread indicators, message composer, and optional thread side panel.
+ * Renders the full channel chat experience within the (workspace) route group.
+ * The persistent sidebar is provided by the parent (workspace)/layout.tsx.
  *
  * Features:
- * - 3-second polling for new messages
+ * - Channel header with name and description
+ * - Bookmarks bar (currently empty, ready for future bookmarks)
+ * - Scrollable message list with avatar, username, timestamp, content
+ * - Message composer with send functionality
+ * - Thread side panel for threaded conversations
+ * - 3-second polling for near-real-time message updates
  * - Auto-scroll to newest message on update
- * - Send message via POST /api/channels/{id}/messages
- * - Thread panel toggle for threaded conversations
- * - Channel info from workspace context (no separate fetch)
- * - Member count from GET /api/channels/{id}/members
  *
- * URL: /(workspace)/channel/[id]
+ * Data flow:
+ * 1. Fetches channel details from GET /api/channels
+ * 2. Fetches current user from GET /api/users (first user as default)
+ * 3. Fetches messages from GET /api/channels/{id}/messages
+ * 4. Polls for new messages every 3 seconds
+ * 5. Sends messages via POST /api/channels/{id}/messages
+ *
+ * Route: /channel/[id] (within (workspace) route group — no URL segment added)
+ *
+ * Color palette (Slack design tokens):
+ *   bg-white — content area background
+ *   #007A5A — send button green (via MessageInput)
+ *   #1164A3 — active channel blue / focus ring (via MessageInput)
+ *   border-gray-200 — separator borders
  */
 
 import { use, useState, useEffect, useRef, useCallback } from "react";
@@ -24,190 +37,230 @@ import MessageBubble from "@/app/components/MessageBubble";
 import MessageInput from "@/app/components/MessageInput";
 import ThreadPanel from "@/app/components/ThreadPanel";
 import BookmarksBar from "@/app/components/BookmarksBar";
-import UserProfile from "@/app/components/UserProfile";
-import { useWorkspace } from "@/app/providers";
-import type { Message } from "@/lib/types";
-import type { BookmarkItem } from "@/app/components/BookmarksBar";
+import type { Message, Channel } from "@/lib/types";
+
+/* -------------------------------------------------------------------------- */
+/*  Props Interface                                                           */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Next.js 16 App Router page props.
+ * In Next.js 16+, route params are delivered as a Promise that must be
+ * unwrapped with React 19's use() hook in client components.
+ */
+interface ChannelPageProps {
+  params: Promise<{ id: string }>;
+}
 
 /* -------------------------------------------------------------------------- */
 /*  Page Component                                                            */
 /* -------------------------------------------------------------------------- */
 
-export default function ChannelPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
+/**
+ * ChannelPage — The most important page route in the workspace.
+ *
+ * Replicates and replaces the original monolithic SlackClone component
+ * (src/app/page.tsx, 248 lines) by consuming decomposed shared components:
+ * ChannelHeader, MessageBubble, MessageInput, ThreadPanel, BookmarksBar.
+ *
+ * Layout structure:
+ * ┌────────────────────────────────────────────────────────┬──────────────┐
+ * │ Main Content Column                                    │ Thread Panel │
+ * │ ┌────────────────────────────────────────────────────┐ │ (optional)   │
+ * │ │ ChannelHeader (# channel-name | description)      │ │              │
+ * │ ├────────────────────────────────────────────────────┤ │              │
+ * │ │ BookmarksBar (currently empty)                     │ │              │
+ * │ ├────────────────────────────────────────────────────┤ │              │
+ * │ │ Message List (scrollable, px-6 py-4)              │ │              │
+ * │ │   MessageBubble × N                               │ │              │
+ * │ │   <auto-scroll anchor>                            │ │              │
+ * │ ├────────────────────────────────────────────────────┤ │              │
+ * │ │ MessageInput (Message #channel-name)              │ │              │
+ * │ └────────────────────────────────────────────────────┘ │              │
+ * └────────────────────────────────────────────────────────┴──────────────┘
+ */
+export default function ChannelPage({ params }: ChannelPageProps) {
+  /* ==== Route Parameter Extraction ==== */
+
+  /**
+   * Unwrap the async params Promise using React 19's use() hook.
+   * CRITICAL: In Next.js 16 App Router, page params are Promise<{ id: string }>.
+   * Client components MUST use use() (NOT await) to unwrap them.
+   */
   const { id } = use(params);
-  const channelId = parseInt(id, 10);
+  const channelId = id;
 
-  /* ---- Context ---- */
-  const { currentUser, channels } = useWorkspace();
-  const channel = channels.find((c) => c.id === channelId) ?? null;
+  /* ==== State Management ==== */
 
-  /* ---- State ---- */
+  /** The current channel object (name, description, etc.) fetched from /api/channels */
+  const [channel, setChannel] = useState<Channel | null>(null);
+
+  /** Messages for this channel fetched from /api/channels/{id}/messages */
   const [messages, setMessages] = useState<Message[]>([]);
-  const [memberCount, setMemberCount] = useState<number>(0);
-  const [bookmarks] = useState<BookmarkItem[]>([]);
 
-  // Thread panel state
-  const [threadMessage, setThreadMessage] = useState<Message | null>(null);
+  /** The parent message of the currently open thread panel (null = closed) */
+  const [activeThread, setActiveThread] = useState<Message | null>(null);
 
-  // User profile panel state
-  const [profileUserId, setProfileUserId] = useState<number | null>(null);
+  /** Current user for sending messages — fetched from /api/users, uses first user */
+  const [currentUser, setCurrentUser] = useState<{ id: number } | null>(null);
 
-  // Auto-scroll ref
+  /** Invisible div at the bottom of message list for smooth auto-scroll anchor */
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  /* ---- Message Fetching with 3-second polling ---- */
-  const fetchMessages = useCallback(() => {
-    fetch(`/api/channels/${channelId}/messages`)
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to fetch messages");
-        return res.json();
+  /* ==== Data Fetching ==== */
+
+  /**
+   * Fetch channel details on mount and when channelId changes.
+   * Finds the matching channel from the full channel list by numeric ID.
+   */
+  useEffect(() => {
+    fetch("/api/channels")
+      .then((r) => r.json())
+      .then((data: Channel[]) => {
+        const found = data.find((ch) => ch.id === Number(channelId));
+        if (found) setChannel(found);
       })
+      .catch(() => {
+        /* Graceful degradation — channel header remains hidden */
+      });
+  }, [channelId]);
+
+  /**
+   * Fetch users on mount and set the first user as the current user.
+   * No authentication — the first user in the list is used by default.
+   */
+  useEffect(() => {
+    fetch("/api/users")
+      .then((r) => r.json())
+      .then((data: { id: number }[]) => {
+        if (data.length > 0) setCurrentUser(data[0]);
+      })
+      .catch(() => {
+        /* Graceful degradation — message sending disabled without user */
+      });
+  }, []);
+
+  /**
+   * Memoized message fetching function.
+   * Uses channelId from route params (not from channel state) to ensure
+   * stable dependencies for the polling effect.
+   */
+  const fetchMessages = useCallback(() => {
+    if (!channelId) return;
+    fetch(`/api/channels/${channelId}/messages`)
+      .then((r) => r.json())
       .then((data: Message[]) => setMessages(data))
       .catch(() => {
-        /* Silent — keep showing existing messages */
+        /* Graceful degradation — keep showing existing messages */
       });
   }, [channelId]);
 
+  /**
+   * Initial message fetch when channelId changes.
+   * Triggers immediately, then polling takes over.
+   */
   useEffect(() => {
     fetchMessages();
-    const interval = setInterval(fetchMessages, 3000);
-    return () => clearInterval(interval);
   }, [fetchMessages]);
 
-  /* ---- Fetch member count ---- */
+  /**
+   * 3-second polling for near-real-time message updates.
+   * CRITICAL: Must use exactly 3000ms interval and clean up on unmount.
+   * Matches the established polling pattern from the original SlackClone.
+   */
   useEffect(() => {
-    fetch(`/api/channels/${channelId}/members`)
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to fetch members");
-        return res.json();
-      })
-      .then((data: Array<Record<string, unknown>>) =>
-        setMemberCount(data.length)
-      )
-      .catch(() => {
-        /* Graceful degradation — member count stays 0 */
-      });
-  }, [channelId]);
+    if (!channelId) return;
+    const interval = setInterval(fetchMessages, 3000);
+    return () => clearInterval(interval);
+  }, [channelId, fetchMessages]);
 
-  /* ---- Auto-scroll on new messages ---- */
+  /**
+   * Auto-scroll to the bottom of the message list when new messages arrive.
+   * Uses smooth scrolling for a polished user experience.
+   */
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  /* ---- Send message handler ---- */
-  const handleSendMessage = useCallback(
-    async (content: string) => {
-      if (!currentUser) return;
-      try {
-        const res = await fetch(`/api/channels/${channelId}/messages`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            user_id: currentUser.id,
-            content,
-          }),
-        });
-        if (res.ok) {
-          fetchMessages();
-        }
-      } catch {
-        /* Silent failure */
-      }
-    },
-    [currentUser, channelId, fetchMessages]
-  );
+  /* ==== Event Handlers ==== */
 
-  /* ---- Thread handlers ---- */
-  const handleThreadClick = useCallback(
-    (messageId: number) => {
-      const msg = messages.find((m) => m.id === messageId);
-      if (msg) setThreadMessage(msg);
-    },
-    [messages]
-  );
+  /**
+   * Send a message to the current channel via POST /api/channels/{id}/messages.
+   * Validates input, sends the request, and immediately refetches messages.
+   * The MessageInput component handles clearing its own text state.
+   */
+  const handleSendMessage = async (content: string) => {
+    if (!content.trim() || !channelId || !currentUser) return;
+    try {
+      await fetch(`/api/channels/${channelId}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: currentUser.id, content }),
+      });
+      fetchMessages();
+    } catch {
+      /* Graceful degradation — message not sent, no user-visible error */
+    }
+  };
 
-  const handleThreadClose = useCallback(() => {
-    setThreadMessage(null);
-  }, []);
+  /**
+   * Open the thread panel for a specific message.
+   * Finds the parent message by ID from the current messages array
+   * and sets it as the active thread.
+   */
+  const handleThreadClick = (messageId: number) => {
+    const parentMsg = messages.find((m) => m.id === messageId);
+    if (parentMsg) setActiveThread(parentMsg);
+  };
 
-  /* ---- User profile handlers ---- */
-  const handleUserClick = useCallback((userId: number) => {
-    setProfileUserId(userId);
-  }, []);
+  /**
+   * Close the thread panel by clearing the active thread state.
+   */
+  const handleCloseThread = () => {
+    setActiveThread(null);
+  };
 
-  const handleProfileClose = useCallback(() => {
-    setProfileUserId(null);
-  }, []);
+  /* ==== Render ==== */
 
-  /* ---- Render ---- */
   return (
-    <div className="flex h-full">
-      {/* Main channel area */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* Channel Header */}
-        {channel && (
-          <ChannelHeader channel={channel} memberCount={memberCount} />
-        )}
+    <div className="flex flex-1 h-full overflow-hidden">
+      {/* Main Content Column — channel header, messages, and input */}
+      <div className="flex-1 flex flex-col min-w-0 bg-white">
+        {/* Channel Header — shows # channel-name and description */}
+        {channel && <ChannelHeader channel={channel} />}
 
-        {/* Bookmarks Bar */}
-        {bookmarks.length > 0 && <BookmarksBar bookmarks={bookmarks} />}
+        {/* Bookmarks Bar — currently empty, renders nothing when no bookmarks */}
+        <BookmarksBar bookmarks={[]} />
 
-        {/* Message List */}
-        <div className="flex-1 overflow-y-auto px-4 py-2">
-          {messages.length === 0 ? (
-            <div className="flex items-center justify-center h-full">
-              <div className="text-center">
-                <p className="text-lg font-bold text-gray-900">
-                  Welcome to #{channel?.name ?? "channel"}
-                </p>
-                <p className="text-sm text-gray-500 mt-1">
-                  This is the very beginning of the{" "}
-                  <strong>#{channel?.name ?? "channel"}</strong> channel.
-                </p>
-              </div>
-            </div>
-          ) : (
-            messages.map((message) => (
-              <MessageBubble
-                key={message.id}
-                message={message}
-                onThreadClick={handleThreadClick}
-                onUserClick={handleUserClick}
-                showHoverActions
-              />
-            ))
-          )}
+        {/* Message List — scrollable container with Slack-standard padding */}
+        <div className="flex-1 overflow-y-auto px-6 py-4">
+          {messages.map((msg) => (
+            <MessageBubble
+              key={msg.id}
+              message={msg}
+              onThreadClick={handleThreadClick}
+            />
+          ))}
+          {/* Auto-scroll anchor — invisible element at the bottom of the list */}
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Message Input */}
-        <MessageInput
-          channelName={channel?.name ?? "channel"}
-          onSendMessage={handleSendMessage}
-          placeholder={`Message #${channel?.name ?? "channel"}`}
-        />
+        {/* Message Input — rendered only when channel is loaded */}
+        {channel && (
+          <MessageInput
+            channelName={channel.name}
+            onSendMessage={handleSendMessage}
+          />
+        )}
       </div>
 
-      {/* Thread Side Panel (conditional) */}
-      {threadMessage && (
+      {/* Thread Panel — slides in from the right when a thread is active */}
+      {activeThread && (
         <ThreadPanel
-          parentMessage={threadMessage}
-          isOpen={!!threadMessage}
-          onClose={handleThreadClose}
+          parentMessage={activeThread}
+          isOpen={!!activeThread}
+          onClose={handleCloseThread}
           currentUserId={currentUser?.id}
-        />
-      )}
-
-      {/* User Profile Side Panel (conditional) */}
-      {profileUserId && (
-        <UserProfile
-          userId={profileUserId}
-          isOpen={!!profileUserId}
-          onClose={handleProfileClose}
         />
       )}
     </div>
