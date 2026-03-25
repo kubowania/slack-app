@@ -352,19 +352,25 @@ export default function ActivityFeed({ currentUserId }: ActivityFeedProps) {
    * (e.g., "mentioned you" vs "mentioned someone").
    */
   function renderActivityDescription(activity: ActivityItem): React.ReactNode {
-    const user = userMap.get(activity.user_id);
-    const displayName = user?.username ?? "Someone";
+    /* Use the username/avatar_color returned directly by the /api/activity
+       endpoint (which JOINs the users table). Fall back to the userMap lookup
+       with acting_user_id for backward compatibility. */
+    const actingUserId = activity.acting_user_id ?? activity.user_id;
+    const userFromMap = userMap.get(actingUserId);
+    const displayName = activity.username ?? userFromMap?.username ?? "Someone";
+    /* Use the channel_name returned directly by the API (via JOIN), falling
+       back to the channelMap lookup for backward compatibility. */
     const channel =
       activity.channel_id !== undefined
         ? channelMap.get(activity.channel_id)
         : undefined;
-    const channelName = channel?.name ?? "a channel";
+    const channelName = activity.channel_name ?? channel?.name ?? "a channel";
     const preview = activity.content_preview
       ? truncatePreview(activity.content_preview)
       : "";
     /* Personalise description when the activity targets the current user */
     const isOwnActivity =
-      currentUserId !== undefined && activity.user_id === currentUserId;
+      currentUserId !== undefined && actingUserId === currentUserId;
 
     switch (activity.type) {
       case "mention":
@@ -505,7 +511,13 @@ export default function ActivityFeed({ currentUserId }: ActivityFeedProps) {
 
               {/* Activity items within this date group */}
               {group.items.map((activity) => {
-                const activityUser = userMap.get(activity.user_id);
+                /* Use the username/avatar_color returned directly by the
+                   /api/activity endpoint. Fall back to userMap with
+                   acting_user_id for backward compatibility. */
+                const actingId = activity.acting_user_id ?? activity.user_id;
+                const activityUser = userMap.get(actingId);
+                const avatarUsername = activity.username ?? activityUser?.username ?? "?";
+                const avatarColor = activity.avatar_color ?? activityUser?.avatar_color ?? "#808080";
                 const isUnread = isRecentActivity(
                   activity.created_at,
                   UNREAD_THRESHOLD_HOURS
@@ -513,15 +525,15 @@ export default function ActivityFeed({ currentUserId }: ActivityFeedProps) {
 
                 return (
                   <div
-                    key={activity.id}
+                    key={`${activity.type}-${activity.id}`}
                     className={`activity-item px-6 py-3 border-b border-gray-100 flex items-start gap-3 hover:bg-gray-50 ${
                       isUnread ? "activity-item-unread" : ""
                     }`}
                   >
                     {/* Left: User Avatar */}
                     <UserAvatar
-                      username={activityUser?.username ?? "?"}
-                      avatarColor={activityUser?.avatar_color ?? "#808080"}
+                      username={avatarUsername}
+                      avatarColor={avatarColor}
                       size="sm"
                     />
 

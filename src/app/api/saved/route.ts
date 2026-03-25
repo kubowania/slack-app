@@ -30,9 +30,18 @@ export async function GET(req: Request) {
     const offset = parseInt(searchParams.get("offset") || "0", 10) || 0;
 
     const result = await query(
-      `SELECT si.*, m.content as message_content, f.name as file_name, c.name as source_channel
+      `SELECT si.*,
+              m.content AS message_content,
+              m.created_at AS message_created_at,
+              u.username AS message_username,
+              u.avatar_color AS message_avatar_color,
+              f.name AS file_name,
+              f.file_type AS file_type,
+              f.file_size AS file_size,
+              c.name AS source_channel
        FROM saved_items si
        LEFT JOIN messages m ON m.id = si.message_id
+       LEFT JOIN users u ON u.id = m.user_id
        LEFT JOIN files f ON f.id = si.file_id
        LEFT JOIN channels c ON c.id = COALESCE(m.channel_id, f.channel_id)
        WHERE si.user_id = $1

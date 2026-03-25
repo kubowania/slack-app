@@ -34,8 +34,25 @@ export interface SavedItemsProps {
 /* -------------------------------------------------------------------------- */
 
 /**
- * The API enriches each SavedItem with its associated message or file data
- * so the component can render full previews without additional fetches.
+ * Raw shape returned by GET /api/saved — flat fields from SQL JOINs.
+ * The API returns `message_content`, `message_username`, etc. as top-level
+ * fields rather than nested objects. The fetch handler transforms these
+ * into the nested `EnrichedSavedItem` shape for the rendering logic.
+ */
+interface RawSavedItemResponse extends SavedItem {
+  message_content?: string;
+  message_created_at?: string;
+  message_username?: string;
+  message_avatar_color?: string;
+  file_name?: string;
+  file_type?: string;
+  file_size?: number;
+  source_channel?: string;
+}
+
+/**
+ * The enriched saved item type used by the rendering logic.
+ * Constructed from the flat API response by the fetch handler.
  */
 interface EnrichedSavedItem extends SavedItem {
   /** Embedded message data when the saved item is a bookmarked message. */
@@ -159,9 +176,33 @@ export default function SavedItems({ currentUserId }: SavedItemsProps) {
         if (!response.ok) {
           throw new Error(`Failed to fetch saved items: ${response.status}`);
         }
-        const data: EnrichedSavedItem[] = await response.json();
+        const rawData: RawSavedItemResponse[] = await response.json();
+
+        /* Transform flat API fields into the nested shape expected by rendering logic */
+        const enrichedData: EnrichedSavedItem[] = rawData.map((raw) => ({
+          ...raw,
+          message:
+            raw.message_id != null && raw.message_content != null
+              ? {
+                  content: raw.message_content,
+                  username: raw.message_username ?? "Unknown",
+                  avatar_color: raw.message_avatar_color ?? "#999999",
+                  created_at: raw.message_created_at ?? raw.saved_at,
+                }
+              : undefined,
+          file_item:
+            raw.file_id != null && raw.file_name != null
+              ? {
+                  name: raw.file_name,
+                  file_type: raw.file_type ?? "unknown",
+                  file_size: raw.file_size ?? 0,
+                }
+              : undefined,
+          source_channel: raw.source_channel,
+        }));
+
         if (!cancelled) {
-          setSavedItems(data);
+          setSavedItems(enrichedData);
         }
       } catch {
         /* Gracefully handle fetch errors — show empty state */

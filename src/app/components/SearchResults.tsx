@@ -166,7 +166,7 @@ function MessageResult({
           {highlightSearchTerms(message.content, query)}
         </p>
         <span className="text-xs text-gray-400 mt-1 inline-block">
-          in&nbsp;#{message.channel_id}
+          in&nbsp;#{message.channel_name || message.channel_id}
         </span>
       </div>
     </div>

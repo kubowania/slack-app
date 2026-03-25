@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import Image from "next/image";
 import type { FileItem } from "@/lib/types";
 
 /**
@@ -16,13 +15,15 @@ export interface FileBrowserProps {
 }
 
 /**
- * Extended FileItem that includes the uploader's username from the API JOIN.
- * The /api/files and /api/channels/:id/files endpoints return `f.*, u.username`,
- * so the response includes the username string alongside the numeric uploaded_by FK.
+ * Extended FileItem that includes the uploader's username and channel name
+ * from the API JOINs. The /api/files endpoint returns `f.*, u.username, c.name AS channel_name`,
+ * so the response includes both the username and channel_name strings alongside the numeric FKs.
  */
 interface FileItemWithUploader extends FileItem {
   /** Uploader's username from the users table JOIN */
   username?: string;
+  /** Source channel name from the channels table JOIN */
+  channel_name?: string;
 }
 
 // =============================================================================
@@ -662,7 +663,7 @@ export default function FileBrowser({ channelId }: FileBrowserProps) {
               {/* Metadata: channel, date, size */}
               <div className="flex items-center gap-4 shrink-0 text-right">
                 <span className="text-xs text-gray-500">
-                  #{file.channel_id}
+                  #{file.channel_name || file.channel_id}
                 </span>
                 <span className="text-xs text-gray-400">
                   {formatDate(file.created_at)}
@@ -683,16 +684,27 @@ export default function FileBrowser({ channelId }: FileBrowserProps) {
                 key={file.id}
                 className="border border-gray-200 rounded-lg overflow-hidden hover:shadow-md transition-shadow cursor-pointer"
               >
-                {/* Thumbnail / placeholder area */}
+                {/* Thumbnail / placeholder area — uses <img> with onError fallback
+                     to gracefully handle non-existent thumbnail URLs in seed data */}
                 {file.thumbnail_url ? (
                   <div className="aspect-video bg-gray-50 relative overflow-hidden">
-                    <Image
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
                       src={file.thumbnail_url}
                       alt={`Preview of ${file.name}`}
-                      className="object-cover"
-                      fill
-                      sizes="(max-width: 768px) 50vw, 25vw"
+                      className="object-cover w-full h-full"
                       loading="lazy"
+                      onError={(e) => {
+                        /* Hide the broken image and show the file type icon placeholder instead */
+                        const target = e.currentTarget;
+                        target.style.display = "none";
+                        const parent = target.parentElement;
+                        if (parent) {
+                          parent.classList.add("flex", "items-center", "justify-center", "text-3xl");
+                          parent.classList.add(...getFileTypeColor(file.file_type).split(" "));
+                          parent.textContent = getFileTypeIcon(file.file_type);
+                        }
+                      }}
                     />
                   </div>
                 ) : (

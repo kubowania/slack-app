@@ -119,6 +119,8 @@ export interface Message {
   reaction_summary?: ReactionSummary[];
   /** Whether this message is pinned to the channel */
   is_pinned?: boolean;
+  /** Channel name (returned by search API via JOIN, not present in standard message queries) */
+  channel_name?: string;
 }
 
 // =============================================================================
@@ -409,10 +411,18 @@ export interface ActivityItem {
   type: string;
   /** Related message ID, if applicable (FK to messages table) */
   message_id?: number;
-  /** User who triggered the activity (FK to users table) */
+  /** User who triggered the activity (FK to users table) — NOTE: the API returns this as acting_user_id */
   user_id: number;
+  /** The user who performed the action (returned by /api/activity as acting_user_id) */
+  acting_user_id?: number;
+  /** Username of the acting user (returned directly by /api/activity via JOIN) */
+  username?: string;
+  /** Avatar color of the acting user (returned directly by /api/activity via JOIN) */
+  avatar_color?: string;
   /** Channel where the activity occurred, if applicable (FK to channels table) */
   channel_id?: number;
+  /** Channel name where the activity occurred (returned directly by /api/activity via JOIN) */
+  channel_name?: string;
   /** Timestamp when the activity occurred (ISO 8601) */
   created_at: string;
   /** Preview text of the activity content for display in the feed */

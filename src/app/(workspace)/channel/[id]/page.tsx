@@ -113,6 +113,9 @@ export default function ChannelPage({ params }: ChannelPageProps) {
   /** The current channel object (name, description, etc.) fetched from /api/channels */
   const [channel, setChannel] = useState<Channel | null>(null);
 
+  /** Whether the channel fetch completed but no matching channel was found (404 state) */
+  const [channelNotFound, setChannelNotFound] = useState<boolean>(false);
+
   /** Messages for this channel fetched from /api/channels/{id}/messages */
   const [messages, setMessages] = useState<Message[]>([]);
 
@@ -129,15 +132,27 @@ export default function ChannelPage({ params }: ChannelPageProps) {
    * Finds the matching channel from the full channel list by numeric ID.
    */
   useEffect(() => {
+    let cancelled = false;
     fetch("/api/channels")
       .then((r) => r.json())
       .then((data: Channel[]) => {
+        if (cancelled) return;
         const found = data.find((ch) => ch.id === Number(channelId));
-        if (found) setChannel(found);
+        if (found) {
+          setChannel(found);
+          setChannelNotFound(false);
+        } else {
+          setChannel(null);
+          setChannelNotFound(true);
+        }
       })
       .catch(() => {
-        /* Graceful degradation — channel header remains hidden */
+        if (cancelled) return;
+        /* Graceful degradation — show channel not found on fetch failure */
+        setChannel(null);
+        setChannelNotFound(true);
       });
+    return () => { cancelled = true; };
   }, [channelId]);
 
   /**
@@ -269,6 +284,26 @@ export default function ChannelPage({ params }: ChannelPageProps) {
   };
 
   /* ==== Render ==== */
+
+  /* Channel Not Found — display user-friendly error state instead of blank area */
+  if (channelNotFound) {
+    return (
+      <div className="flex flex-1 h-full overflow-hidden">
+        <div className="flex-1 flex flex-col items-center justify-center bg-white">
+          <span className="text-5xl mb-4" role="img" aria-label="Channel not found">
+            🔍
+          </span>
+          <h2 className="text-xl font-bold text-gray-900 mb-2">
+            Channel not found
+          </h2>
+          <p className="text-sm text-gray-500 text-center max-w-sm">
+            The channel you&apos;re looking for doesn&apos;t exist or may have been
+            deleted. Try selecting a channel from the sidebar.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-1 h-full overflow-hidden">
