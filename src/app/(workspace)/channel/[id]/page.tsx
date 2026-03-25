@@ -32,11 +32,13 @@
  */
 
 import { use, useState, useEffect, useRef, useCallback } from "react";
+import { notFound } from "next/navigation";
 import ChannelHeader from "@/app/components/ChannelHeader";
 import MessageBubble from "@/app/components/MessageBubble";
 import MessageInput from "@/app/components/MessageInput";
 import ThreadPanel from "@/app/components/ThreadPanel";
 import BookmarksBar from "@/app/components/BookmarksBar";
+import { useWorkspace } from "@/app/providers";
 import type { Message, Channel } from "@/lib/types";
 
 /* -------------------------------------------------------------------------- */
@@ -88,7 +90,23 @@ export default function ChannelPage({ params }: ChannelPageProps) {
    * Client components MUST use use() (NOT await) to unwrap them.
    */
   const { id } = use(params);
+
+  /** Validate route parameter is numeric — prevents SQL errors from invalid URLs */
+  const numericId = Number(id);
+  if (isNaN(numericId)) {
+    notFound();
+  }
   const channelId = id;
+
+  /* ==== Shared State from WorkspaceProvider ==== */
+
+  /**
+   * Consume the shared currentUser from WorkspaceProvider via useWorkspace().
+   * This ensures Sidebar user-switching propagates to message sending —
+   * fixing the regression from the monolith decomposition where each page
+   * independently fetched /api/users and ignored Sidebar user changes.
+   */
+  const { currentUser } = useWorkspace();
 
   /* ==== State Management ==== */
 
@@ -100,9 +118,6 @@ export default function ChannelPage({ params }: ChannelPageProps) {
 
   /** The parent message of the currently open thread panel (null = closed) */
   const [activeThread, setActiveThread] = useState<Message | null>(null);
-
-  /** Current user for sending messages — fetched from /api/users, uses first user */
-  const [currentUser, setCurrentUser] = useState<{ id: number } | null>(null);
 
   /** Invisible div at the bottom of message list for smooth auto-scroll anchor */
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -124,21 +139,6 @@ export default function ChannelPage({ params }: ChannelPageProps) {
         /* Graceful degradation — channel header remains hidden */
       });
   }, [channelId]);
-
-  /**
-   * Fetch users on mount and set the first user as the current user.
-   * No authentication — the first user in the list is used by default.
-   */
-  useEffect(() => {
-    fetch("/api/users")
-      .then((r) => r.json())
-      .then((data: { id: number }[]) => {
-        if (data.length > 0) setCurrentUser(data[0]);
-      })
-      .catch(() => {
-        /* Graceful degradation — message sending disabled without user */
-      });
-  }, []);
 
   /**
    * Memoized message fetching function.
@@ -261,6 +261,7 @@ export default function ChannelPage({ params }: ChannelPageProps) {
           isOpen={!!activeThread}
           onClose={handleCloseThread}
           currentUserId={currentUser?.id}
+          channelName={channel?.name}
         />
       )}
     </div>

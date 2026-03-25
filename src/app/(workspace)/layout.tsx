@@ -8,8 +8,11 @@
  * parenthesized folder name is a Next.js route group — no URL segment is added.
  *
  * Responsibilities:
- *   - Manages shared state for users, channels, currentUser, DMs, and workspace
- *   - Fetches initial data from /api/users, /api/channels, /api/workspace, /api/dms
+ *   - Consumes shared state (users, channels, currentUser, workspace) from
+ *     WorkspaceProvider via the useWorkspace() hook — eliminating redundant
+ *     fetches and ensuring Sidebar user-switching propagates to all pages
+ *   - Fetches DM conversations from /api/dms (not in shared context)
+ *   - Derives active navigation state from the current URL via usePathname()
  *   - Provides channel creation handler to the Sidebar
  *   - Renders two-column flex layout: Sidebar (w-64 handled internally) + main (flex-1)
  *
@@ -21,14 +24,16 @@
  *   │          │                           │
  *   └──────────┴───────────────────────────┘
  *
- * State management is extracted from the original monolithic page.tsx
- * (lines 28-35 for state, 39-52 for fetching, 91-108 for channel creation).
- * No polling happens here — message polling belongs to individual page routes.
+ * State management uses the centralized WorkspaceProvider from providers.tsx
+ * for all shared workspace data (users, channels, workspace, currentUser).
+ * DM conversations are fetched locally since they are only needed by the sidebar.
  */
 
 import { useState, useEffect, useCallback } from "react";
+import { usePathname } from "next/navigation";
 import Sidebar from "@/app/components/Sidebar";
-import type { User, Channel, DirectMessage, Workspace } from "@/lib/types";
+import { useWorkspace } from "@/app/providers";
+import type { DirectMessage } from "@/lib/types";
 
 /**
  * WorkspaceLayout — Default export for the (workspace) route group layout.
@@ -42,85 +47,79 @@ export default function WorkspaceLayout({
   children: React.ReactNode;
 }) {
   /* ======================================================================== */
-  /* State Management (extracted from page.tsx lines 28-35)                    */
+  /* Shared State from WorkspaceProvider                                       */
+  /* Consumes the centralized context instead of managing independent          */
+  /* state/fetches — ensures Sidebar user-switching propagates everywhere.     */
   /* ======================================================================== */
 
-  /** All workspace users for the user-switcher dropdown in the Sidebar */
-  const [users, setUsers] = useState<User[]>([]);
+  const {
+    currentUser,
+    setCurrentUser,
+    users,
+    channels,
+    setChannels,
+    workspace,
+  } = useWorkspace();
 
-  /** All channels displayed in the Sidebar channels section */
-  const [channels, setChannels] = useState<Channel[]>([]);
-
-  /** Currently selected user — null before initial load completes */
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  /* ======================================================================== */
+  /* Local State — DM conversations (not in shared context)                    */
+  /* ======================================================================== */
 
   /** DM conversations list for the Sidebar direct messages section */
   const [dms, setDms] = useState<DirectMessage[]>([]);
 
-  /** Workspace metadata displayed in the Sidebar header */
-  const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  /* ======================================================================== */
+  /* Active State Derivation from URL                                          */
+  /* Uses usePathname() to determine which sidebar item is currently active,   */
+  /* enabling proper visual highlighting in the Sidebar component.             */
+  /* ======================================================================== */
+
+  const pathname = usePathname();
+
+  /** Parse the current URL to derive active channel, DM, and section state */
+  let activeChannelId: number | undefined;
+  let activeDmId: number | undefined;
+  let activeSection: string | undefined;
+
+  if (pathname) {
+    const channelMatch = pathname.match(/^\/channel\/(\d+)/);
+    const dmMatch = pathname.match(/^\/dm\/(\d+)/);
+
+    if (channelMatch) {
+      activeChannelId = Number(channelMatch[1]);
+      activeSection = "home";
+    } else if (dmMatch) {
+      activeDmId = Number(dmMatch[1]);
+      activeSection = "dms";
+    } else if (pathname.startsWith("/dm")) {
+      activeSection = "dms";
+    } else if (pathname.startsWith("/activity")) {
+      activeSection = "activity";
+    } else if (
+      pathname.startsWith("/channels/browse") ||
+      pathname.startsWith("/files") ||
+      pathname.startsWith("/people") ||
+      pathname.startsWith("/saved") ||
+      pathname.startsWith("/canvas") ||
+      pathname.startsWith("/preferences")
+    ) {
+      activeSection = "more";
+    } else if (pathname === "/" || pathname.startsWith("/channel")) {
+      activeSection = "home";
+    } else if (pathname.startsWith("/search")) {
+      activeSection = "home";
+    }
+  }
 
   /* ======================================================================== */
-  /* Data Fetching (extracted from page.tsx lines 39-52, extended)             */
+  /* DM Data Fetching (only data not in shared context)                        */
   /* ======================================================================== */
 
   /**
-   * Fetch all initial data on component mount.
-   *
-   * Users and channels are essential — they drive the sidebar content and user
-   * switcher. Workspace and DMs have graceful fallbacks since those endpoints
-   * may not exist during incremental development.
+   * Fetch DM conversations on mount. Uses graceful degradation — if the
+   * endpoint is unavailable, the DM section simply shows an empty list.
    */
   useEffect(() => {
-    /* Fetch all users and set the first as the current user */
-    fetch("/api/users")
-      .then((res) => {
-        if (!res.ok) throw new Error("Users fetch failed");
-        return res.json();
-      })
-      .then((data: User[]) => {
-        setUsers(data);
-        if (data.length > 0) {
-          setCurrentUser(data[0]);
-        }
-      })
-      .catch(() => {
-        /* Graceful degradation — sidebar shows empty user list */
-      });
-
-    /* Fetch all channels */
-    fetch("/api/channels")
-      .then((res) => {
-        if (!res.ok) throw new Error("Channels fetch failed");
-        return res.json();
-      })
-      .then((data: Channel[]) => {
-        setChannels(data);
-      })
-      .catch(() => {
-        /* Graceful degradation — sidebar shows empty channel list */
-      });
-
-    /* Fetch workspace metadata (fallback if endpoint not available) */
-    fetch("/api/workspace")
-      .then((res) => {
-        if (!res.ok) throw new Error("Workspace fetch failed");
-        return res.json();
-      })
-      .then((data: Workspace) => {
-        setWorkspace(data);
-      })
-      .catch(() => {
-        setWorkspace({
-          id: 1,
-          name: "Slack Clone",
-          member_count: 0,
-          plan: "free",
-          created_at: "",
-        });
-      });
-
-    /* Fetch DM conversations (fallback if endpoint not available) */
     fetch("/api/dms")
       .then((res) => {
         if (!res.ok) throw new Error("DMs fetch failed");
@@ -141,7 +140,8 @@ export default function WorkspaceLayout({
   /**
    * Handles new channel creation. Posts to /api/channels with the given name
    * and the current user as the creator. On success, appends the new channel
-   * to the channels state so the Sidebar updates immediately.
+   * to the shared channels state via the context's setChannels so the Sidebar
+   * updates immediately.
    *
    * Memoized with useCallback to prevent unnecessary re-renders when passed
    * as a prop to the Sidebar component.
@@ -162,13 +162,13 @@ export default function WorkspaceLayout({
 
         if (!res.ok) return;
 
-        const channel: Channel = await res.json();
+        const channel = await res.json();
         setChannels((prev) => [...prev, channel]);
       } catch {
         /* Silent failure — channel creation failed, sidebar unchanged */
       }
     },
-    [currentUser]
+    [currentUser, setChannels]
   );
 
   /* ======================================================================== */
@@ -178,12 +178,17 @@ export default function WorkspaceLayout({
   return (
     <div className="flex h-full">
       {/* Persistent Sidebar Navigation — handles its own w-64 width and
-          Slack purple (#3F0E40) background styling internally */}
+          Slack purple (#3F0E40) background styling internally.
+          Active state props derived from usePathname() enable visual
+          highlighting of the current channel, DM, and nav section. */}
       <Sidebar
         users={users}
         channels={channels}
         dms={dms}
         currentUser={currentUser}
+        activeChannelId={activeChannelId}
+        activeDmId={activeDmId}
+        activeSection={activeSection}
         onUserChange={setCurrentUser}
         onChannelCreate={handleCreateChannel}
         workspace={workspace ?? undefined}

@@ -36,11 +36,13 @@
  */
 
 import { use, useState, useEffect, useRef, useCallback } from "react";
+import { notFound } from "next/navigation";
 import ChannelHeader from "@/app/components/ChannelHeader";
 import MessageBubble from "@/app/components/MessageBubble";
 import MessageInput from "@/app/components/MessageInput";
 import ThreadPanel from "@/app/components/ThreadPanel";
-import type { Message, User, DirectMessage } from "@/lib/types";
+import { useWorkspace } from "@/app/providers";
+import type { Message, DmMessage, DirectMessage } from "@/lib/types";
 
 /* -------------------------------------------------------------------------- */
 /*  Props Interface                                                           */
@@ -79,18 +81,34 @@ export default function DmPage({ params }: DmPageProps) {
    * Client components MUST use use() (NOT await) to unwrap them.
    */
   const { id } = use(params);
+
+  /** Validate route parameter is numeric — prevents SQL errors from invalid URLs */
+  const numericId = Number(id);
+  if (isNaN(numericId)) {
+    notFound();
+  }
   const dmId = id;
+
+  /* ==== Shared State from WorkspaceProvider ==== */
+
+  /**
+   * Consume the shared currentUser from WorkspaceProvider via useWorkspace().
+   * This ensures Sidebar user-switching propagates to DM message sending —
+   * fixing the regression from the monolith decomposition.
+   */
+  const { currentUser } = useWorkspace();
 
   /* ==== State Management ==== */
 
   /** DM conversation metadata including participant info (names, avatars) */
   const [dmInfo, setDmInfo] = useState<DirectMessage | null>(null);
 
-  /** Messages for this DM conversation fetched from /api/dms/{id}/messages */
-  const [messages, setMessages] = useState<Message[]>([]);
-
-  /** Current user for sending messages — fetched from /api/users, first user default */
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  /**
+   * Messages for this DM conversation fetched from /api/dms/{id}/messages.
+   * Uses DmMessage type (with dm_id field) instead of Message (which has
+   * channel_id) since DM messages belong to DM conversations, not channels.
+   */
+  const [messages, setMessages] = useState<DmMessage[]>([]);
 
   /** The parent message of the currently open thread panel (null = closed) */
   const [activeThread, setActiveThread] = useState<Message | null>(null);
@@ -117,21 +135,6 @@ export default function DmPage({ params }: DmPageProps) {
   }, [dmId]);
 
   /**
-   * Fetch users on mount and set the first user as the current user.
-   * No authentication — the first user in the list is used by default.
-   */
-  useEffect(() => {
-    fetch("/api/users")
-      .then((r) => r.json())
-      .then((data: User[]) => {
-        if (data.length > 0) setCurrentUser(data[0]);
-      })
-      .catch(() => {
-        /* Graceful degradation — message sending disabled without user */
-      });
-  }, []);
-
-  /**
    * Memoized message fetching function.
    * Uses dmId from route params to ensure stable dependencies for polling.
    * KEY DIFFERENCE from channel page: Uses /api/dms/${dmId}/messages
@@ -140,7 +143,7 @@ export default function DmPage({ params }: DmPageProps) {
     if (!dmId) return;
     fetch(`/api/dms/${dmId}/messages`)
       .then((r) => r.json())
-      .then((data: Message[]) => setMessages(data))
+      .then((data: DmMessage[]) => setMessages(data))
       .catch(() => {
         /* Graceful degradation — keep showing existing messages */
       });
@@ -196,12 +199,13 @@ export default function DmPage({ params }: DmPageProps) {
 
   /**
    * Open the thread panel for a specific message.
-   * Finds the parent message by ID from the current messages array
-   * and sets it as the active thread.
+   * Finds the parent message by ID from the current DmMessage array,
+   * adapts it to a Message for ThreadPanel compatibility, and sets it
+   * as the active thread.
    */
   const handleThreadClick = (messageId: number) => {
     const parentMsg = messages.find((m) => m.id === messageId);
-    if (parentMsg) setActiveThread(parentMsg);
+    if (parentMsg) setActiveThread(dmMessageToMessage(parentMsg));
   };
 
   /**
@@ -210,6 +214,25 @@ export default function DmPage({ params }: DmPageProps) {
   const handleCloseThread = () => {
     setActiveThread(null);
   };
+
+  /* ==== Type Adapter ==== */
+
+  /**
+   * Adapts a DmMessage (with dm_id) to a Message (with channel_id) for
+   * rendering through MessageBubble which expects the Message interface.
+   * Since MessageBubble does not access channel_id at runtime, using 0
+   * as a placeholder is safe and semantically correct (DM messages don't
+   * belong to channels).
+   */
+  const dmMessageToMessage = (dm: DmMessage): Message => ({
+    id: dm.id,
+    channel_id: 0,
+    user_id: dm.user_id,
+    content: dm.content,
+    created_at: dm.created_at,
+    username: dm.username,
+    avatar_color: dm.avatar_color,
+  });
 
   /* ==== Helper Functions ==== */
 
@@ -258,7 +281,7 @@ export default function DmPage({ params }: DmPageProps) {
           {messages.map((msg) => (
             <MessageBubble
               key={msg.id}
-              message={msg}
+              message={dmMessageToMessage(msg)}
               onThreadClick={handleThreadClick}
             />
           ))}
@@ -281,6 +304,7 @@ export default function DmPage({ params }: DmPageProps) {
           isOpen={!!activeThread}
           onClose={handleCloseThread}
           currentUserId={currentUser?.id}
+          channelName={getDmParticipantName()}
         />
       )}
     </div>

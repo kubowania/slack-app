@@ -55,6 +55,8 @@ export interface ThreadPanelProps {
   onClose: () => void;
   /** Optional current user ID for sending thread replies */
   currentUserId?: number;
+  /** Optional channel or DM name displayed in the thread header ("in #channel") */
+  channelName?: string;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -95,6 +97,7 @@ export default function ThreadPanel({
   isOpen,
   onClose,
   currentUserId,
+  channelName,
 }: ThreadPanelProps) {
   /* ---- State ---- */
 
@@ -263,9 +266,9 @@ export default function ThreadPanel({
               {replyCount} {replyCount === 1 ? "reply" : "replies"}
             </span>
           )}
-          {parentChannelId !== undefined && (
+          {(channelName || parentChannelId !== undefined) && (
             <span className="text-xs text-gray-400 ml-2 truncate">
-              in #{parentMessage.content ? "channel" : "channel"}
+              in #{channelName || "channel"}
             </span>
           )}
         </div>

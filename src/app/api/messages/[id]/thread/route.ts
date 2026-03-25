@@ -4,14 +4,16 @@ import { query } from "@/lib/db";
 /**
  * GET /api/messages/:id/thread
  *
- * Retrieves all replies in a thread by looking up the junction rows in the
- * `threads` table that link the parent message to its reply messages.
+ * Retrieves the parent message and all replies in a thread by looking up the
+ * junction rows in the `threads` table that link the parent message to its
+ * reply messages.
  *
  * Path parameter:
  *   - id: The parent message ID whose thread replies to fetch
  *
  * Returns:
- *   - 200: Array of reply messages with user metadata, ordered by created_at ASC
+ *   - 200: `{ parent: Message | null, replies: Message[] }` — the parent
+ *          message with user metadata and an ordered array of reply messages
  *   - 500: Database or server error
  */
 export async function GET(
@@ -20,8 +22,20 @@ export async function GET(
 ) {
   const { id } = await params;
   try {
-    const result = await query(
-      `SELECT m.id, m.content, m.created_at, m.user_id, u.username, u.avatar_color
+    /* Fetch the parent message with user metadata */
+    const parentResult = await query(
+      `SELECT m.id, m.channel_id, m.user_id, m.content, m.created_at,
+              u.username, u.avatar_color
+       FROM messages m
+       JOIN users u ON u.id = m.user_id
+       WHERE m.id = $1`,
+      [id]
+    );
+
+    /* Fetch thread replies ordered chronologically */
+    const repliesResult = await query(
+      `SELECT m.id, m.channel_id, m.content, m.created_at, m.user_id,
+              u.username, u.avatar_color
        FROM threads t
        JOIN messages m ON m.id = t.reply_message_id
        JOIN users u ON u.id = m.user_id
@@ -29,7 +43,11 @@ export async function GET(
        ORDER BY m.created_at ASC`,
       [id]
     );
-    return NextResponse.json(result.rows);
+
+    return NextResponse.json({
+      parent: parentResult.rows[0] ?? null,
+      replies: repliesResult.rows,
+    });
   } catch (err) {
     console.error("Failed to fetch thread replies:", err);
     return NextResponse.json(

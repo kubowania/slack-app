@@ -6,6 +6,8 @@ import {
   useState,
   useEffect,
   type ReactNode,
+  type Dispatch,
+  type SetStateAction,
 } from "react";
 
 import type { User, Channel, Workspace } from "@/lib/types";
@@ -30,6 +32,9 @@ interface WorkspaceContextValue {
   setCurrentUser: (user: User) => void;
   users: User[];
   channels: Channel[];
+  /** Exposes the channels state setter so consumers (e.g., workspace layout)
+   *  can append newly created channels without a full refetch. */
+  setChannels: Dispatch<SetStateAction<Channel[]>>;
   workspace: Workspace | null;
 }
 
@@ -145,6 +150,7 @@ function WorkspaceProvider({ children }: { children: ReactNode }) {
     setCurrentUser,
     users,
     channels,
+    setChannels,
     workspace,
   };
 

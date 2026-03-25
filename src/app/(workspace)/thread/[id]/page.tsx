@@ -34,9 +34,10 @@
  */
 
 import { use, useState, useEffect, useRef, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, notFound } from "next/navigation";
 import MessageBubble from "@/app/components/MessageBubble";
 import MessageInput from "@/app/components/MessageInput";
+import { useWorkspace } from "@/app/providers";
 import type { Message } from "@/lib/types";
 
 /* -------------------------------------------------------------------------- */
@@ -60,10 +61,25 @@ export default function ThreadPage({ params }: ThreadPageProps) {
   /* ==== Route Parameter Extraction (Next.js 16 + React 19 pattern) ==== */
   /* In client components, use React 19 use() hook — NOT await.           */
   const { id } = use(params);
+
+  /** Validate route parameter is numeric — prevents SQL errors from invalid URLs */
+  const numericId = Number(id);
+  if (isNaN(numericId)) {
+    notFound();
+  }
   const messageId = id;
 
   /* ==== Navigation ==== */
   const router = useRouter();
+
+  /* ==== Shared State from WorkspaceProvider ==== */
+
+  /**
+   * Consume the shared currentUser from WorkspaceProvider via useWorkspace().
+   * This ensures Sidebar user-switching propagates to thread reply sending —
+   * fixing the state fragmentation from the monolith decomposition.
+   */
+  const { currentUser } = useWorkspace();
 
   /* ==== State ==== */
 
@@ -76,108 +92,56 @@ export default function ThreadPage({ params }: ThreadPageProps) {
   /** Loading state while initial thread data is being fetched */
   const [loading, setLoading] = useState(true);
 
-  /** Current user for sending replies — fetched from /api/users on mount */
-  const [currentUser, setCurrentUser] = useState<{ id: number } | null>(null);
-
   /* ==== Auto-Scroll Ref (matches source page.tsx line 36) ==== */
 
   /** Invisible anchor element at the bottom of replies list for smooth scroll */
   const repliesEndRef = useRef<HTMLDivElement>(null);
 
-  /* ==== Fetch Current User (mirrors source page.tsx lines 40-45) ==== */
-  useEffect(() => {
-    fetch("/api/users")
-      .then((r) => r.json())
-      .then((data: { id: number }[]) => {
-        if (data.length > 0) {
-          setCurrentUser(data[0]);
-        }
-      })
-      .catch(() => {
-        /* Silently handle — user can still view thread without sending */
-      });
-  }, []);
-
-  /* ==== Memoized Fetch Replies (mirrors source pattern lines 55-60) ==== */
+  /* ==== Unified Thread Fetch (single reusable function) ==== */
 
   /**
-   * Fetches thread data from the API. Handles two possible response shapes:
-   * 1. { parent: Message, replies: Message[] } — structured response with parent
-   * 2. Message[] — flat array of replies without parent message
+   * Fetches both the parent message and thread replies from the API.
+   * The API returns `{ parent: Message | null, replies: Message[] }`.
    *
-   * Used by both polling and manual refresh after sending a reply.
+   * This single function is used for both:
+   * 1. Initial data fetch on mount (sets loading to false when done)
+   * 2. 3-second polling for real-time reply updates
+   * 3. Manual refresh after sending a reply
+   *
+   * Consolidates the previously duplicated fetch logic into one function,
+   * eliminating code duplication and the fabricated parent fallback.
    */
-  const fetchReplies = useCallback(() => {
+  const fetchThread = useCallback(() => {
     if (!messageId) return;
     fetch(`/api/messages/${messageId}/thread`)
       .then((r) => {
         if (!r.ok) throw new Error("Failed to fetch thread");
         return r.json();
       })
-      .then((data) => {
-        /* Handle structured response: { parent: Message, replies: Message[] } */
-        if (data && !Array.isArray(data) && data.parent) {
+      .then((data: { parent: Message | null; replies: Message[] }) => {
+        if (data.parent) {
           setParentMessage(data.parent);
-          setReplies(data.replies || []);
         }
-        /* Handle flat array response: Message[] (replies only) */
-        else if (Array.isArray(data)) {
-          setReplies(data);
-        }
+        setReplies(data.replies || []);
+        setLoading(false);
       })
       .catch(() => {
-        /* Silently handle polling errors to avoid disrupting the UI */
+        setLoading(false);
       });
   }, [messageId]);
 
   /* ==== Initial Data Fetch on Mount ==== */
-  /* loading starts as true via useState(true) — no need to set it here.  */
-  /* Component re-mounts when messageId changes (new route instance).     */
   useEffect(() => {
-    fetch(`/api/messages/${messageId}/thread`)
-      .then((r) => {
-        if (!r.ok) throw new Error("Failed to fetch thread");
-        return r.json();
-      })
-      .then((data) => {
-        /* Handle structured response: { parent: Message, replies: Message[] } */
-        if (data && !Array.isArray(data) && data.parent) {
-          setParentMessage(data.parent);
-          setReplies(data.replies || []);
-        }
-        /* Handle flat array response: Message[] (replies only) */
-        else if (Array.isArray(data)) {
-          setReplies(data);
-          /*
-           * Create a fallback parent message when the API only returns replies.
-           * This ensures the parent section renders even without a dedicated
-           * single-message endpoint. The parent fields are populated with safe
-           * defaults matching the Message interface.
-           */
-          setParentMessage({
-            id: parseInt(messageId, 10),
-            channel_id: 0,
-            user_id: 0,
-            content: "Original message",
-            created_at: new Date().toISOString(),
-            username: "Thread starter",
-            avatar_color: "#999",
-          });
-        }
-        setLoading(false);
-      })
-      .catch(() => {
-        setLoading(false);
-      });
-  }, [messageId]);
+    fetchThread();
+  }, [fetchThread]);
 
   /* ==== 3-Second Polling (CRITICAL — mirrors source lines 67-71) ==== */
   /* Established polling pattern: exactly 3000ms interval with cleanup   */
   useEffect(() => {
     if (!messageId) return;
-    const interval = setInterval(fetchReplies, 3000);
+    const interval = setInterval(fetchThread, 3000);
     return () => clearInterval(interval);
-  }, [messageId, fetchReplies]);
+  }, [messageId, fetchThread]);
 
   /* ==== Auto-Scroll on New Replies (mirrors source lines 73-76) ==== */
   useEffect(() => {
@@ -199,7 +163,7 @@ export default function ThreadPage({ params }: ThreadPageProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ user_id: currentUser.id, content }),
       });
-      fetchReplies();
+      fetchThread();
     } catch {
       /* Silently handle send errors — user can retry */
     }
