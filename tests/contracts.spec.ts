@@ -17,6 +17,18 @@
  */
 
 import { test, expect } from '@playwright/test';
+import { mockUsers, mockChannels } from '../src/lib/mock-data';
+
+// ---------------------------------------------------------------------------
+// Reference data — sourced from the centralized mock-data module so that
+// test expectations stay in sync with the seed data definitions.
+// ---------------------------------------------------------------------------
+
+/** Expected base seed usernames, sorted alphabetically (matching DB ORDER BY). */
+const SEED_USERNAMES = mockUsers.slice(0, 3).map((u) => u.username).sort();
+
+/** Expected base seed channel names, sorted alphabetically. */
+const SEED_CHANNEL_NAMES = mockChannels.slice(0, 3).map((c) => c.name).sort();
 
 // ---------------------------------------------------------------------------
 // Helper utilities
@@ -91,10 +103,10 @@ test.describe('Users API', () => {
 
     if (Array.isArray(data) && data.length >= 3) {
       const usernames = data.map((u: Record<string, unknown>) => u.username);
-      // Seed users: alice, bob, charlie (alphabetical)
-      expect(usernames[0]).toBe('alice');
-      expect(usernames[1]).toBe('bob');
-      expect(usernames[2]).toBe('charlie');
+      // Validate against mock-data seed constants (alice, bob, charlie)
+      for (let i = 0; i < SEED_USERNAMES.length; i++) {
+        expect(usernames[i]).toBe(SEED_USERNAMES[i]);
+      }
     }
   });
 
@@ -160,10 +172,10 @@ test.describe('Channels API', () => {
 
     if (Array.isArray(data) && data.length >= 3) {
       const names = data.map((c: Record<string, unknown>) => c.name);
-      // Seed channels sorted: engineering, general, random
-      expect(names[0]).toBe('engineering');
-      expect(names[1]).toBe('general');
-      expect(names[2]).toBe('random');
+      // Validate against mock-data seed constants (engineering, general, random)
+      for (let i = 0; i < SEED_CHANNEL_NAMES.length; i++) {
+        expect(names[i]).toBe(SEED_CHANNEL_NAMES[i]);
+      }
     }
   });
 

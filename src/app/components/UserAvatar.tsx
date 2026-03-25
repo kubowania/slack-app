@@ -154,6 +154,7 @@ export default function UserAvatar({
           ? `View profile of ${username || "unknown user"}`
           : undefined
       }
+      data-testid="user-avatar"
     >
       {/* Avatar square with coloured background and initial letter */}
       <div

@@ -184,6 +184,7 @@ export default function MessageBubble({
       className={containerClasses}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
+      data-testid="message-bubble"
     >
       {/* ================================================================== */}
       {/* Avatar — delegates rendering to the UserAvatar component           */}
@@ -268,6 +269,7 @@ export default function MessageBubble({
               type="button"
               className="text-xs text-[#1164A3] font-medium hover:underline cursor-pointer"
               onClick={handleThreadClick}
+              data-testid="thread-reply-indicator"
             >
               {threadLabel}
             </button>
@@ -298,6 +300,7 @@ export default function MessageBubble({
             className="p-1 rounded hover:bg-gray-100 text-gray-500 text-xs"
             onClick={handleToggleReactionPicker}
             aria-label="Add reaction"
+            data-testid="reaction-button"
             aria-pressed={showReactionPicker}
           >
             😀

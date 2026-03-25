@@ -236,7 +236,8 @@ export default function ChannelHeader({
               type="button"
               className="p-2 rounded hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors"
               onClick={onDetailsClick}
-              aria-label="View channel details"
+              aria-label="Channel details"
+              data-testid="channel-details-button"
             >
               <InfoIcon />
             </button>

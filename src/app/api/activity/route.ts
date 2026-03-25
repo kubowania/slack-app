@@ -70,10 +70,11 @@ export async function GET(req: Request) {
           msg.user_id AS acting_user_id,
           msg.channel_id AS channel_id,
           m.created_at AS created_at,
-          LEFT(msg.content, 100) AS content_preview,
-          u.username AS username,
-          u.avatar_color AS avatar_color,
-          c.name AS channel_name
+          LEFT(msg.content, 100) AS content,
+          u.username AS actor_username,
+          u.avatar_color AS actor_avatar_color,
+          c.name AS channel_name,
+          FALSE AS read
         FROM mentions m
         JOIN messages msg ON msg.id = m.message_id
         JOIN users u ON u.id = msg.user_id
@@ -91,10 +92,11 @@ export async function GET(req: Request) {
           msg.user_id AS acting_user_id,
           msg.channel_id AS channel_id,
           msg.created_at AS created_at,
-          LEFT(msg.content, 100) AS content_preview,
-          u.username AS username,
-          u.avatar_color AS avatar_color,
-          c.name AS channel_name
+          LEFT(msg.content, 100) AS content,
+          u.username AS actor_username,
+          u.avatar_color AS actor_avatar_color,
+          c.name AS channel_name,
+          FALSE AS read
         FROM threads t
         JOIN messages msg ON msg.id = t.reply_message_id
         JOIN messages parent ON parent.id = t.parent_message_id
@@ -113,10 +115,11 @@ export async function GET(req: Request) {
           r.user_id AS acting_user_id,
           msg.channel_id AS channel_id,
           r.created_at AS created_at,
-          CONCAT(r.emoji, ' on: ', LEFT(msg.content, 80)) AS content_preview,
-          u.username AS username,
-          u.avatar_color AS avatar_color,
-          c.name AS channel_name
+          CONCAT(r.emoji, ' on: ', LEFT(msg.content, 80)) AS content,
+          u.username AS actor_username,
+          u.avatar_color AS actor_avatar_color,
+          c.name AS channel_name,
+          FALSE AS read
         FROM reactions r
         JOIN messages msg ON msg.id = r.message_id
         JOIN users u ON u.id = r.user_id

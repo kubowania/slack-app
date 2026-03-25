@@ -185,6 +185,7 @@ export default function HuddleOverlay({
       role="dialog"
       aria-label={`Huddle in #${displayChannelName}`}
       aria-modal="false"
+      data-testid="huddle-overlay"
     >
       {/* ------------------------------------------------------------------ */}
       {/*  Header                                                            */}

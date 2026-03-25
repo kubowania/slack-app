@@ -45,17 +45,7 @@ export async function GET(request: NextRequest) {
     const searchPattern =
       escapedSearch.length > 0 ? `%${escapedSearch}%` : "%";
 
-    // Query total count for pagination metadata
-    const countResult = await query(
-      `SELECT COUNT(*)::int AS total
-       FROM channels c
-       WHERE c.name ILIKE $1`,
-      [searchPattern]
-    );
-    const total: number = countResult.rows[0]?.total ?? 0;
-    const totalPages = Math.max(1, Math.ceil(total / safePerPage));
-
-    // Issue 1: Parse and validate optional user_id for is_member status
+    // Parse and validate optional user_id for is_member status
     let userId: number | null = null;
     if (userIdParam) {
       const num = Number(userIdParam);
@@ -109,13 +99,10 @@ export async function GET(request: NextRequest) {
       })
     );
 
-    return NextResponse.json({
-      channels,
-      total,
-      page: safePage,
-      per_page: safePerPage,
-      total_pages: totalPages,
-    });
+    /* Return a plain array per the API contract (tests/contracts.spec.ts).
+       Pagination metadata is not included in the response body;
+       consumers should use query parameters ?page=N&per_page=M to paginate. */
+    return NextResponse.json(channels);
   } catch (err) {
     console.error("Failed to browse channels:", err);
     return NextResponse.json(

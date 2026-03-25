@@ -558,6 +558,7 @@ export default function EmojiPicker({
       ref={pickerRef}
       className={`absolute z-50 w-80 bg-white rounded-xl shadow-2xl border border-gray-200 ${getPositionClasses(position)}`}
       role="dialog"
+      data-testid="emoji-picker"
       aria-label="Emoji picker"
       aria-modal="true"
     >

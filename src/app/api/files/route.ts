@@ -59,7 +59,7 @@ export async function GET(req: Request) {
     const offsetParam = `$${paramIndex++}`;
 
     const result = await query(
-      `SELECT f.*, u.username, c.name AS channel_name
+      `SELECT f.*, u.username AS uploader_name, c.name AS channel_name
        FROM files f
        JOIN users u ON u.id = f.uploaded_by
        LEFT JOIN channels c ON c.id = f.channel_id
@@ -90,11 +90,16 @@ export async function POST(req: Request) {
   try {
     let body: {
       name?: string;
+      file_type?: string;
+      file_size?: number;
+      uploaded_by?: number;
+      mime_type?: string;
+      channel_id?: number;
+      thumbnail_url?: string;
+      /* Legacy aliases — accept both conventions for backward compatibility */
       type?: string;
       size?: number;
       user_id?: number;
-      channel_id?: number;
-      thumbnail_url?: string;
     };
     try {
       body = await req.json();
@@ -105,20 +110,25 @@ export async function POST(req: Request) {
       );
     }
 
-    const { name, type, size, user_id, channel_id, thumbnail_url } = body;
+    /* Accept both field-name conventions: prefer contract names, fall back to legacy */
+    const name = body.name;
+    const fileType = body.file_type || body.type;
+    const fileSize = body.file_size ?? body.size;
+    const uploadedBy = body.uploaded_by ?? body.user_id;
+    const { channel_id, thumbnail_url, mime_type } = body;
 
-    if (!name || !type || !size || !user_id) {
+    if (!name || !fileType || fileSize == null || uploadedBy == null) {
       return NextResponse.json(
-        { error: "name, type, size, and user_id are required" },
+        { error: "name, file_type, file_size, and uploaded_by are required" },
         { status: 400 }
       );
     }
 
-    // Issue 1: Validate numeric IDs
-    const parsedUserId = parseValidInt(user_id);
+    // Validate numeric IDs
+    const parsedUserId = parseValidInt(uploadedBy);
     if (parsedUserId === null) {
       return NextResponse.json(
-        { error: "user_id must be a valid integer" },
+        { error: "uploaded_by must be a valid integer" },
         { status: 400 },
       );
     }
@@ -133,9 +143,10 @@ export async function POST(req: Request) {
       }
     }
 
-    // Issue 4 & 5: Sanitize text fields
+    // Sanitize text fields
     const safeName = stripNullBytes(name).slice(0, MAX_LENGTHS.FILE_NAME);
-    const safeType = stripNullBytes(type).slice(0, MAX_LENGTHS.EMOJI);
+    const safeType = stripNullBytes(fileType).slice(0, MAX_LENGTHS.EMOJI);
+    const safeMimeType = mime_type ? stripNullBytes(mime_type).slice(0, MAX_LENGTHS.EMOJI) : null;
 
     if (safeName.length === 0) {
       return NextResponse.json(
@@ -147,7 +158,7 @@ export async function POST(req: Request) {
     const result = await query(
       `INSERT INTO files (name, file_type, file_size, uploaded_by, channel_id, thumbnail_url)
        VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-      [safeName, safeType, size, parsedUserId, parsedChannelId, thumbnail_url || null]
+      [safeName, safeMimeType || safeType, fileSize, parsedUserId, parsedChannelId, thumbnail_url || null]
     );
 
     return NextResponse.json(result.rows[0], { status: 201 });

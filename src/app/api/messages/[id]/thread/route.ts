@@ -39,10 +39,12 @@ export async function GET(
       [messageId]
     );
 
-    /* Fetch thread replies ordered chronologically with LIMIT */
+    /* Fetch thread replies ordered chronologically with LIMIT.
+       Include parent_message_id in each reply row for contract compliance. */
     const repliesResult = await query(
       `SELECT m.id, m.channel_id, m.content, m.created_at, m.user_id,
-              u.username, u.avatar_color
+              u.username, u.avatar_color,
+              t.parent_message_id
        FROM threads t
        JOIN messages m ON m.id = t.reply_message_id
        JOIN users u ON u.id = m.user_id
@@ -52,9 +54,17 @@ export async function GET(
       [messageId, limit, offset]
     );
 
+    /* Count total replies for reply_count (not affected by LIMIT/OFFSET) */
+    const countResult = await query(
+      `SELECT COUNT(*)::int AS cnt FROM threads WHERE parent_message_id = $1`,
+      [messageId]
+    );
+    const replyCount: number = countResult.rows[0]?.cnt ?? 0;
+
     return NextResponse.json({
-      parent: parentResult.rows[0] ?? null,
+      parent_message: parentResult.rows[0] ?? null,
       replies: repliesResult.rows,
+      reply_count: replyCount,
     });
   } catch (err) {
     console.error("Failed to fetch thread replies:", err);
@@ -151,11 +161,14 @@ export async function POST(
       [messageId, insertResult.rows[0].id, channel_id]
     );
 
-    // Step 4: Return enriched reply with user info
+    // Step 4: Return enriched reply with user info and parent_message_id
     const enrichedReply = await query(
-      `SELECT m.id, m.content, m.created_at, m.user_id, u.username, u.avatar_color
+      `SELECT m.id, m.content, m.created_at, m.user_id,
+              u.username, u.avatar_color,
+              t.parent_message_id
        FROM messages m
        JOIN users u ON u.id = m.user_id
+       JOIN threads t ON t.reply_message_id = m.id
        WHERE m.id = $1`,
       [insertResult.rows[0].id]
     );

@@ -41,14 +41,14 @@ export async function GET(req: Request) {
 
     const result = await query(
       `SELECT si.*,
-              m.content AS message_content,
+              m.content AS content,
               m.created_at AS message_created_at,
-              u.username AS message_username,
-              u.avatar_color AS message_avatar_color,
+              u.username AS username,
+              u.avatar_color AS avatar_color,
               f.name AS file_name,
               f.file_type AS file_type,
               f.file_size AS file_size,
-              c.name AS source_channel
+              c.name AS channel_name
        FROM saved_items si
        LEFT JOIN messages m ON m.id = si.message_id
        LEFT JOIN users u ON u.id = m.user_id
@@ -192,7 +192,7 @@ export async function DELETE(req: Request) {
       );
     }
 
-    return new NextResponse(null, { status: 204 });
+    return NextResponse.json({ success: true, id: parsedId }, { status: 200 });
   } catch (err) {
     console.error("Failed to delete saved item:", err);
     return NextResponse.json(

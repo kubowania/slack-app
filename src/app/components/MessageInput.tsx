@@ -74,6 +74,7 @@ export default function MessageInput({
           ? "px-4 py-3 border-t border-gray-200"
           : "px-6 py-4 border-t border-gray-200"
       }
+      data-testid="message-input"
     >
       {/* Formatting Toolbar — visual only, no actual rich text editing */}
       {showFormatToolbar && (

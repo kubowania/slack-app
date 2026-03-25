@@ -319,6 +319,7 @@ export default function UserProfile({
       className="w-80 border-l border-gray-200 bg-white flex flex-col h-full thread-panel-enter"
       role="complementary"
       aria-label="User profile"
+      data-testid="user-profile-panel"
     >
       {/* ================================================================ */}
       {/* Panel Header                                                      */}

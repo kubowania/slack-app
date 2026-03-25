@@ -190,10 +190,21 @@ export default function Sidebar({
       {/* ================================================================ */}
       {/* Workspace Header — workspace name + user switcher                */}
       {/* ================================================================ */}
-      <div className="p-4 border-b border-[#522653]">
-        <h1 className="text-lg font-bold">
-          {workspace?.name || "Slack Clone"}
-        </h1>
+      <div className="p-4 border-b border-[#522653]" data-testid="workspace-header">
+        <div className="flex items-center justify-between">
+          <h1 className="text-lg font-bold">
+            {workspace?.name || "Slack Clone"}
+          </h1>
+          {/* Workspace settings link — navigates to preferences page */}
+          <Link
+            href="/preferences"
+            className="text-gray-300 hover:text-white"
+            aria-label="Workspace settings"
+            data-testid="workspace-settings"
+          >
+            <span aria-hidden="true">⚙️</span>
+          </Link>
+        </div>
         {/* User switcher dropdown — exact styling from page.tsx */}
         <select
           className="mt-2 w-full bg-[#522653] text-white text-sm rounded px-2 py-1 border-none outline-none"
@@ -257,6 +268,7 @@ export default function Sidebar({
               className="text-gray-300 hover:text-white text-lg leading-none"
               type="button"
               aria-label="Create new channel"
+              data-testid="create-channel-button"
             >
               +
             </button>

@@ -51,17 +51,38 @@ interface DmMember {
  *   }
  * ]
  */
-export async function GET() {
+export async function GET(req: Request) {
   try {
-    // Query 1: Fetch all DM conversations with last message preview, last_message_at, and unread_count
+    const { searchParams } = new URL(req.url);
+    const userIdParam = searchParams.get("user_id");
+
+    /* user_id is required — return 400 when missing or non-numeric */
+    if (!userIdParam) {
+      return NextResponse.json(
+        { error: "user_id is required" },
+        { status: 400 }
+      );
+    }
+    const parsedUserId = parseValidInt(userIdParam);
+    if (parsedUserId === null) {
+      return NextResponse.json(
+        { error: "user_id must be a valid integer" },
+        { status: 400 },
+      );
+    }
+
+    /* Query 1: Fetch DM conversations where the requesting user is a member,
+       with last message preview, last_message_at, and unread_count. */
     const dmsResult = await query(
       `SELECT dm.id, dm.created_by, dm.is_group, dm.created_at,
         (SELECT content FROM dm_messages WHERE dm_id = dm.id ORDER BY created_at DESC LIMIT 1) AS last_message_preview,
         (SELECT created_at FROM dm_messages WHERE dm_id = dm.id ORDER BY created_at DESC LIMIT 1) AS last_message_at,
         0 AS unread_count
        FROM direct_messages dm
+       WHERE dm.id IN (SELECT dm_id FROM dm_members WHERE user_id = $1)
        ORDER BY dm.created_at DESC
-       LIMIT 100`
+       LIMIT 100`,
+      [parsedUserId]
     );
 
     const dms: DmRow[] = dmsResult.rows;

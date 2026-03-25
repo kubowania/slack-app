@@ -190,17 +190,23 @@ export async function DELETE(
   }
 
   try {
-    let body: { emoji?: string; user_id?: number };
-    try {
-      body = await req.json();
-    } catch {
-      return NextResponse.json(
-        { error: "Invalid JSON body" },
-        { status: 400 }
-      );
-    }
+    /* Accept emoji and user_id from EITHER query parameters or JSON body.
+       Query params take precedence (tests send DELETE with query params). */
+    const { searchParams } = new URL(req.url);
+    let emoji: string | undefined = searchParams.get("emoji") || undefined;
+    let user_id: string | number | undefined =
+      searchParams.get("user_id") || undefined;
 
-    const { emoji, user_id } = body;
+    /* Fall back to request body if query params are absent */
+    if (!emoji || !user_id) {
+      try {
+        const body: { emoji?: string; user_id?: number } = await req.json();
+        emoji = emoji || body.emoji;
+        user_id = user_id ?? body.user_id;
+      } catch {
+        /* No body provided — continue with whatever was in query params */
+      }
+    }
 
     if (!emoji || !user_id) {
       return NextResponse.json(
@@ -209,7 +215,7 @@ export async function DELETE(
       );
     }
 
-    // Issue 1: Validate user_id
+    // Validate user_id
     const parsedUserId = parseValidInt(user_id);
     if (parsedUserId === null) {
       return NextResponse.json(
@@ -231,7 +237,7 @@ export async function DELETE(
       );
     }
 
-    return new NextResponse(null, { status: 204 });
+    return NextResponse.json({ success: true }, { status: 200 });
   } catch (err) {
     console.error("Failed to remove reaction:", err);
     return NextResponse.json(

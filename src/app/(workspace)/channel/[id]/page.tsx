@@ -38,6 +38,9 @@ import MessageBubble from "@/app/components/MessageBubble";
 import MessageInput from "@/app/components/MessageInput";
 import ThreadPanel from "@/app/components/ThreadPanel";
 import BookmarksBar from "@/app/components/BookmarksBar";
+import UserProfile from "@/app/components/UserProfile";
+import HuddleOverlay from "@/app/components/HuddleOverlay";
+import ModalDialog from "@/app/components/ModalDialog";
 import { useWorkspace } from "@/app/providers";
 import type { Message, Channel } from "@/lib/types";
 
@@ -121,6 +124,18 @@ export default function ChannelPage({ params }: ChannelPageProps) {
 
   /** The parent message of the currently open thread panel (null = closed) */
   const [activeThread, setActiveThread] = useState<Message | null>(null);
+
+  /** User ID for the open user profile panel (null = closed) */
+  const [profileUserId, setProfileUserId] = useState<number | null>(null);
+
+  /** Whether the huddle overlay is visible */
+  const [huddleOpen, setHuddleOpen] = useState<boolean>(false);
+
+  /** Whether the channel details panel is visible */
+  const [detailsOpen, setDetailsOpen] = useState<boolean>(false);
+
+  /** Whether the invite members modal is visible */
+  const [inviteModalOpen, setInviteModalOpen] = useState<boolean>(false);
 
   /** Invisible div at the bottom of message list for smooth auto-scroll anchor */
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -283,6 +298,31 @@ export default function ChannelPage({ params }: ChannelPageProps) {
     }
   };
 
+  /** Open the user profile side panel for a given user ID */
+  const handleUserClick = (userId: number) => {
+    setProfileUserId(userId);
+  };
+
+  /** Close the user profile side panel */
+  const handleCloseProfile = () => {
+    setProfileUserId(null);
+  };
+
+  /** Toggle channel details panel */
+  const handleDetailsClick = () => {
+    setDetailsOpen((prev) => !prev);
+  };
+
+  /** Toggle huddle overlay */
+  const handleHuddleToggle = () => {
+    setHuddleOpen((prev) => !prev);
+  };
+
+  /** Toggle invite members modal */
+  const handleInviteToggle = () => {
+    setInviteModalOpen((prev) => !prev);
+  };
+
   /* ==== Render ==== */
 
   /* Channel Not Found — display user-friendly error state instead of blank area */
@@ -310,7 +350,12 @@ export default function ChannelPage({ params }: ChannelPageProps) {
       {/* Main Content Column — channel header, messages, and input */}
       <div className="flex-1 flex flex-col min-w-0 bg-white">
         {/* Channel Header — shows # channel-name and description */}
-        {channel && <ChannelHeader channel={channel} />}
+        {channel && (
+          <ChannelHeader
+            channel={channel}
+            onDetailsClick={handleDetailsClick}
+          />
+        )}
 
         {/* Bookmarks Bar — currently empty, renders nothing when no bookmarks */}
         <BookmarksBar bookmarks={[]} />
@@ -323,6 +368,8 @@ export default function ChannelPage({ params }: ChannelPageProps) {
               message={msg}
               onThreadClick={handleThreadClick}
               onReactionClick={handleReactionClick}
+              onUserClick={handleUserClick}
+              showHoverActions
             />
           ))}
           {/* Auto-scroll anchor — invisible element at the bottom of the list */}
@@ -336,6 +383,28 @@ export default function ChannelPage({ params }: ChannelPageProps) {
             onSendMessage={handleSendMessage}
           />
         )}
+
+        {/* Footer toolbar with huddle and invite buttons */}
+        <div className="flex items-center gap-2 px-4 py-2 border-t border-gray-100">
+          <button
+            type="button"
+            className="flex items-center gap-1 px-3 py-1.5 text-xs text-gray-600 rounded hover:bg-gray-100 transition-colors"
+            onClick={handleHuddleToggle}
+            data-testid="huddle-button"
+            aria-label="Start a huddle"
+          >
+            🎧 Huddle
+          </button>
+          <button
+            type="button"
+            className="flex items-center gap-1 px-3 py-1.5 text-xs text-gray-600 rounded hover:bg-gray-100 transition-colors"
+            onClick={handleInviteToggle}
+            data-testid="invite-members-button"
+            aria-label="Invite members"
+          >
+            👤+ Invite
+          </button>
+        </div>
       </div>
 
       {/* Thread Panel — slides in from the right when a thread is active */}
@@ -348,6 +417,106 @@ export default function ChannelPage({ params }: ChannelPageProps) {
           channelName={channel?.name}
         />
       )}
+
+      {/* User Profile Panel — slides in when a user avatar is clicked */}
+      {profileUserId !== null && (
+        <UserProfile
+          userId={profileUserId}
+          isOpen={profileUserId !== null}
+          onClose={handleCloseProfile}
+        />
+      )}
+
+      {/* Channel Details Panel — right sidebar with channel info */}
+      {detailsOpen && channel && (
+        <aside
+          className="w-80 border-l border-gray-200 bg-white flex flex-col h-full thread-panel-enter"
+          data-testid="channel-details-panel"
+          role="complementary"
+          aria-label="Channel details"
+        >
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+            <h2 className="text-sm font-bold text-gray-900">
+              # {channel.name}
+            </h2>
+            <button
+              onClick={handleDetailsClick}
+              className="p-1 rounded hover:bg-gray-100 text-gray-400"
+              type="button"
+              aria-label="Close details"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="flex border-b border-gray-200">
+            <button
+              type="button"
+              className="flex-1 px-4 py-2 text-xs font-medium text-[#1164A3] border-b-2 border-[#1164A3]"
+              data-testid="details-tab-members"
+            >
+              Members
+            </button>
+            <button
+              type="button"
+              className="flex-1 px-4 py-2 text-xs font-medium text-gray-500 hover:text-gray-700"
+              data-testid="details-tab-pins"
+            >
+              Pins
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4">
+            {channel.description && (
+              <p className="text-sm text-gray-600 mb-4">
+                {channel.description}
+              </p>
+            )}
+            <p className="text-xs text-gray-400">
+              Channel details are loaded here.
+            </p>
+          </div>
+        </aside>
+      )}
+
+      {/* Huddle Overlay — floating bottom-right overlay */}
+      <HuddleOverlay
+        isOpen={huddleOpen}
+        onClose={() => setHuddleOpen(false)}
+        channelName={channel?.name}
+      />
+
+      {/* Invite Members Modal */}
+      <ModalDialog
+        isOpen={inviteModalOpen}
+        title="Invite Members"
+        onClose={handleInviteToggle}
+      >
+        <div data-testid="modal-dialog">
+            <p className="text-sm text-gray-600 mb-4">
+              Invite people to <strong>#{channel?.name}</strong>
+            </p>
+            <input
+              type="text"
+              className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
+              placeholder="Search for people to invite..."
+            />
+            <div className="flex justify-end gap-2 mt-4">
+              <button
+                type="button"
+                className="px-4 py-2 text-sm text-gray-600 rounded hover:bg-gray-100"
+                onClick={handleInviteToggle}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="px-4 py-2 text-sm text-white bg-[#007A5A] rounded hover:bg-[#006549]"
+                onClick={handleInviteToggle}
+              >
+                Send Invites
+              </button>
+            </div>
+          </div>
+      </ModalDialog>
     </div>
   );
 }

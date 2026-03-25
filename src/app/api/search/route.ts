@@ -70,16 +70,36 @@ export async function GET(req: Request) {
       const params: unknown[] = [searchTerm];
       let paramIndex = 2;
 
+      /* Resolve `from` filter — accepts numeric user ID or username string.
+         If a string is given, look up the user ID from the users table. */
       if (from) {
-        conditions.push(`m.user_id = $${paramIndex}`);
-        params.push(parseInt(from, 10));
-        paramIndex++;
+        const parsedFrom = parseInt(from, 10);
+        if (!isNaN(parsedFrom) && String(parsedFrom) === from) {
+          conditions.push(`m.user_id = $${paramIndex}`);
+          params.push(parsedFrom);
+          paramIndex++;
+        } else {
+          // Treat as username — subquery to resolve user ID by name
+          conditions.push(`m.user_id = (SELECT id FROM users WHERE username = $${paramIndex} LIMIT 1)`);
+          params.push(from);
+          paramIndex++;
+        }
       }
 
+      /* Resolve `in` filter — accepts numeric channel ID or channel name string.
+         If a string is given, look up the channel ID from the channels table. */
       if (inChannel) {
-        conditions.push(`m.channel_id = $${paramIndex}`);
-        params.push(parseInt(inChannel, 10));
-        paramIndex++;
+        const parsedIn = parseInt(inChannel, 10);
+        if (!isNaN(parsedIn) && String(parsedIn) === inChannel) {
+          conditions.push(`m.channel_id = $${paramIndex}`);
+          params.push(parsedIn);
+          paramIndex++;
+        } else {
+          // Treat as channel name — subquery to resolve channel ID by name
+          conditions.push(`m.channel_id = (SELECT id FROM channels WHERE name = $${paramIndex} LIMIT 1)`);
+          params.push(inChannel);
+          paramIndex++;
+        }
       }
 
       if (before) {
