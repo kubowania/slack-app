@@ -1,0 +1,248 @@
+import { NextResponse } from "next/server";
+import { query } from "@/lib/db";
+import {
+  parseValidInt,
+  stripNullBytes,
+  MAX_LENGTHS,
+} from "@/lib/validation";
+
+/**
+ * GET /api/messages/:id/reactions
+ *
+ * Lists all reactions on a specific message, grouped by emoji.
+ * Each group contains the emoji, count of users who reacted, and
+ * an array of user objects (id, username, avatar_color).
+ *
+ * @returns 200 - Array of grouped reaction objects
+ * @returns 500 - Server error
+ */
+export async function GET(
+  _req: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params;
+
+  // Issue 1: Validate message ID is a valid integer
+  const messageId = parseValidInt(id);
+  if (messageId === null) {
+    return NextResponse.json(
+      { error: "Message ID must be a valid integer" },
+      { status: 400 },
+    );
+  }
+
+  try {
+    const result = await query(
+      `SELECT r.emoji, u.id AS user_id, u.username, u.avatar_color
+       FROM reactions r
+       JOIN users u ON u.id = r.user_id
+       WHERE r.message_id = $1
+       ORDER BY r.emoji, r.created_at ASC
+       LIMIT 100`,
+      [messageId]
+    );
+
+    const grouped: Record<
+      string,
+      {
+        emoji: string;
+        count: number;
+        users: { id: number; username: string; avatar_color: string }[];
+      }
+    > = {};
+
+    for (const row of result.rows) {
+      if (!grouped[row.emoji]) {
+        grouped[row.emoji] = { emoji: row.emoji, count: 0, users: [] };
+      }
+      grouped[row.emoji].count++;
+      grouped[row.emoji].users.push({
+        id: row.user_id,
+        username: row.username,
+        avatar_color: row.avatar_color,
+      });
+    }
+
+    return NextResponse.json(Object.values(grouped));
+  } catch (err) {
+    console.error("Failed to fetch reactions:", err);
+    return NextResponse.json(
+      { error: "Failed to fetch reactions" },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * POST /api/messages/:id/reactions
+ *
+ * Adds a new emoji reaction to a specific message for a given user.
+ * If the user has already reacted with the same emoji, this is a no-op
+ * per CONTRACTS.md (INSERT ON CONFLICT DO NOTHING).
+ *
+ * @body { emoji: string, user_id: number }
+ * @returns 201 - The created reaction record
+ * @returns 200 - No-op if duplicate reaction exists
+ * @returns 400 - Missing required fields (emoji, user_id) or malformed JSON
+ * @returns 500 - Server error
+ */
+export async function POST(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params;
+
+  // Issue 1: Validate message ID
+  const messageId = parseValidInt(id);
+  if (messageId === null) {
+    return NextResponse.json(
+      { error: "Message ID must be a valid integer" },
+      { status: 400 },
+    );
+  }
+
+  try {
+    let body: { emoji?: string; user_id?: number };
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json(
+        { error: "Invalid JSON body" },
+        { status: 400 }
+      );
+    }
+
+    const { emoji, user_id } = body;
+
+    if (!emoji || !user_id) {
+      return NextResponse.json(
+        { error: "emoji and user_id are required" },
+        { status: 400 }
+      );
+    }
+
+    // Issue 1: Validate user_id is a valid integer
+    const parsedUserId = parseValidInt(user_id);
+    if (parsedUserId === null) {
+      return NextResponse.json(
+        { error: "user_id must be a valid integer" },
+        { status: 400 },
+      );
+    }
+
+    // Issues 4 & 5: Sanitize emoji text (strip null bytes, enforce length)
+    const safeEmoji = stripNullBytes(emoji).slice(0, MAX_LENGTHS.EMOJI);
+
+    // Use ON CONFLICT DO NOTHING to prevent duplicate reactions
+    const result = await query(
+      `INSERT INTO reactions (message_id, user_id, emoji)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (message_id, user_id, emoji) DO NOTHING
+       RETURNING *`,
+      [messageId, parsedUserId, safeEmoji]
+    );
+
+    // If no row was returned, the reaction already existed — return existing as no-op
+    if (result.rows.length === 0) {
+      const existing = await query(
+        `SELECT * FROM reactions WHERE message_id = $1 AND user_id = $2 AND emoji = $3`,
+        [messageId, parsedUserId, safeEmoji]
+      );
+      return NextResponse.json(existing.rows[0], { status: 200 });
+    }
+
+    return NextResponse.json(result.rows[0], { status: 201 });
+  } catch (err) {
+    console.error("Failed to add reaction:", err);
+    return NextResponse.json(
+      { error: "Failed to add reaction" },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * DELETE /api/messages/:id/reactions
+ *
+ * Removes an emoji reaction from a specific message for a given user.
+ * Identifies the reaction to remove by the combination of message_id,
+ * user_id, and emoji.
+ *
+ * @body { emoji: string, user_id: number }
+ * @returns 204 - Reaction successfully removed (no body)
+ * @returns 400 - Missing required fields (emoji, user_id) or malformed JSON
+ * @returns 404 - Reaction not found for the given combination
+ * @returns 500 - Server error
+ */
+export async function DELETE(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params;
+
+  // Issue 1: Validate message ID
+  const messageId = parseValidInt(id);
+  if (messageId === null) {
+    return NextResponse.json(
+      { error: "Message ID must be a valid integer" },
+      { status: 400 },
+    );
+  }
+
+  try {
+    /* Accept emoji and user_id from EITHER query parameters or JSON body.
+       Query params take precedence (tests send DELETE with query params). */
+    const { searchParams } = new URL(req.url);
+    let emoji: string | undefined = searchParams.get("emoji") || undefined;
+    let user_id: string | number | undefined =
+      searchParams.get("user_id") || undefined;
+
+    /* Fall back to request body if query params are absent */
+    if (!emoji || !user_id) {
+      try {
+        const body: { emoji?: string; user_id?: number } = await req.json();
+        emoji = emoji || body.emoji;
+        user_id = user_id ?? body.user_id;
+      } catch {
+        /* No body provided — continue with whatever was in query params */
+      }
+    }
+
+    if (!emoji || !user_id) {
+      return NextResponse.json(
+        { error: "emoji and user_id are required" },
+        { status: 400 }
+      );
+    }
+
+    // Validate user_id
+    const parsedUserId = parseValidInt(user_id);
+    if (parsedUserId === null) {
+      return NextResponse.json(
+        { error: "user_id must be a valid integer" },
+        { status: 400 },
+      );
+    }
+
+    const result = await query(
+      `DELETE FROM reactions
+       WHERE message_id = $1 AND user_id = $2 AND emoji = $3`,
+      [messageId, parsedUserId, emoji]
+    );
+
+    if (result.rowCount === 0) {
+      return NextResponse.json(
+        { error: "Reaction not found" },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json({ success: true }, { status: 200 });
+  } catch (err) {
+    console.error("Failed to remove reaction:", err);
+    return NextResponse.json(
+      { error: "Failed to remove reaction" },
+      { status: 500 }
+    );
+  }
+}
