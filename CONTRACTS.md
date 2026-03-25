@@ -43,9 +43,11 @@
   - `500 Internal Server Error` — Database or server error
 - **Timestamps:** All timestamps are in ISO 8601 format (PostgreSQL `TIMESTAMP` serialized as `"YYYY-MM-DDTHH:mm:ss.sssZ"`)
 - **ID Type:** All IDs are auto-incrementing integers (`SERIAL PRIMARY KEY`)
-- **Pagination:** List endpoints support `?limit=N&offset=M` query parameters. Default limit is 50; maximum is 200.
+- **Pagination:** Most list endpoints support `?limit=N&offset=M` query parameters. Default limit varies by endpoint (typically 20–100); maximum is 200. **Exceptions:** `GET /api/channels` and `GET /api/dms` return all results without `limit`/`offset` support. `GET /api/channels/browse` uses page-based pagination (`?page=N&per_page=M`) instead of offset-based.
 - **Sorting:** List endpoints return results in their natural order unless a `sort` parameter is specified.
 - **Null Fields:** Nullable fields are included in responses with `null` values rather than being omitted.
+- **TypeScript Notation:** Interfaces in this document use the explicit null-union pattern (`field: type | null`) to clearly convey that the field is always present in the JSON response. The companion `src/lib/types.ts` file may use optional property syntax (`field?: type`) for the same fields — both notations are semantically equivalent for JSON serialization. Refer to `types.ts` for the client-side type definitions and this document for API response shapes.
+- **types.ts Coverage:** The `src/lib/types.ts` file defines lean client-side interfaces that may not include every JOIN-enriched field present in API responses. Additionally, some internal database-row types in `types.ts` (e.g., `Mention`, `SearchResult`, `Thread`) represent storage-layer shapes used by route handlers and are not documented as API response interfaces in this file.
 
 ---
 
@@ -207,19 +209,24 @@ interface Channel {
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `limit` | integer | No | `50` | Maximum number of messages to return |
-| `before` | string | No | — | ISO 8601 timestamp — return messages created before this time |
-| `after` | string | No | — | ISO 8601 timestamp — return messages created after this time |
+| `limit` | integer | No | `100` | Maximum number of messages to return (max 200) |
+| `offset` | integer | No | `0` | Pagination offset |
 
 **Request Body:** None
 
 **Response Body (`200 OK`):**
 
 ```typescript
+interface ReactionUser {
+  id: number;
+  username: string;
+  avatar_color: string;
+}
+
 interface ReactionSummary {
   emoji: string;
   count: number;
-  users: string[];
+  users: ReactionUser[];
 }
 
 interface Message {
@@ -227,12 +234,12 @@ interface Message {
   channel_id: number;
   user_id: number;
   content: string;
-  username: string;
-  avatar_color: string;
+  username?: string;           // Enriched via JOIN — present on GET responses
+  avatar_color?: string;       // Enriched via JOIN — present on GET responses
   created_at: string;
-  thread_reply_count: number;
-  reaction_summary: ReactionSummary[];
-  is_pinned: boolean;
+  thread_reply_count?: number; // Enriched via subquery — present on GET list responses
+  reaction_summary?: ReactionSummary[]; // Enriched via subquery — present on GET list responses
+  is_pinned?: boolean;         // Enriched via subquery — present on GET list responses
 }
 
 type Response = Message[];
@@ -255,7 +262,7 @@ type Response = Message[];
     "created_at": "2024-07-01T09:00:00.000Z",
     "thread_reply_count": 2,
     "reaction_summary": [
-      { "emoji": "👋", "count": 3, "users": ["bob", "charlie", "alice"] }
+      { "emoji": "👋", "count": 3, "users": [{"id": 2, "username": "bob", "avatar_color": "#3B82F6"}, {"id": 3, "username": "charlie", "avatar_color": "#10B981"}, {"id": 1, "username": "alice", "avatar_color": "#EF4444"}] }
     ],
     "is_pinned": true
   },
@@ -269,7 +276,7 @@ type Response = Message[];
     "created_at": "2024-07-01T09:05:00.000Z",
     "thread_reply_count": 0,
     "reaction_summary": [
-      { "emoji": "😄", "count": 1, "users": ["alice"] }
+      { "emoji": "😄", "count": 1, "users": [{"id": 1, "username": "alice", "avatar_color": "#EF4444"}] }
     ],
     "is_pinned": false
   },
@@ -417,7 +424,7 @@ type Response = User[];
     "created_at": "2024-07-01T00:00:00.000Z",
     "status_emoji": "🎧",
     "status_text": "In a meeting",
-    "display_name": "Charlie Davis",
+    "display_name": "Charlie Brown",
     "title": "DevOps Engineer"
   }
 ]
@@ -491,15 +498,9 @@ Displays a 1:1 or group direct message conversation with a participant list in t
 
 ### `GET /api/dms`
 
-**Description:** List all direct message conversations for the current user, with the most recent message preview and unread count.
+**Description:** List all direct message conversations in the workspace, with the most recent message preview and unread count. Returns up to 100 conversations (hardcoded limit).
 
-**Query Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `user_id` | integer | Yes | — | Current user ID to fetch their DM conversations |
-| `limit` | integer | No | `50` | Maximum number of conversations to return |
-| `offset` | integer | No | `0` | Number of conversations to skip |
+**Query Parameters:** None (returns all DMs up to an internal limit of 100)
 
 **Request Body:** None
 
@@ -528,7 +529,6 @@ type Response = DirectMessage[];
 ```
 
 **Error Responses:**
-- `400 Bad Request` — `{ "error": "user_id is required" }`
 - `500 Internal Server Error` — `{ "error": "Failed to fetch direct messages" }`
 
 **Example Response:**
@@ -555,7 +555,7 @@ type Response = DirectMessage[];
     "members": [
       { "user_id": 1, "username": "alice", "avatar_color": "#EF4444", "display_name": "Alice Johnson" },
       { "user_id": 2, "username": "bob", "avatar_color": "#3B82F6", "display_name": "Bob Smith" },
-      { "user_id": 3, "username": "charlie", "avatar_color": "#10B981", "display_name": "Charlie Davis" }
+      { "user_id": 3, "username": "charlie", "avatar_color": "#10B981", "display_name": "Charlie Brown" }
     ],
     "last_message_preview": "Great idea, let's do it!",
     "last_message_at": "2024-07-15T11:20:00.000Z",
@@ -569,7 +569,7 @@ type Response = DirectMessage[];
 
 ### `POST /api/dms`
 
-**Description:** Create a new direct message conversation between two or more users.
+**Description:** Create a new direct message conversation between two or more users. The first entry in `member_ids` is automatically used as the conversation creator (`created_by`). Conversations with more than 2 members are marked as group DMs.
 
 **Query Parameters:** None
 
@@ -577,8 +577,7 @@ type Response = DirectMessage[];
 
 ```typescript
 interface CreateDmRequest {
-  created_by: number;     // Required — ID of the user initiating the DM
-  member_ids: number[];   // Required — array of user IDs to include (including creator)
+  member_ids: number[];   // Required — array of user IDs (minimum 2). First ID becomes the creator.
 }
 ```
 
@@ -598,15 +597,15 @@ interface DirectMessage {
 ```
 
 **Error Responses:**
-- `400 Bad Request` — `{ "error": "created_by and member_ids are required" }`
-- `400 Bad Request` — `{ "error": "At least 2 members are required" }`
+- `400 Bad Request` — `{ "error": "member_ids array with at least 2 user IDs is required" }`
+- `400 Bad Request` — `{ "error": "Invalid member_id: <id>. Must be a valid integer." }`
+- `400 Bad Request` — `{ "error": "Invalid user IDs: <ids>. Users do not exist." }`
 - `500 Internal Server Error` — `{ "error": "Failed to create direct message" }`
 
 **Example Request:**
 
 ```json
 {
-  "created_by": 1,
   "member_ids": [1, 3]
 }
 ```
@@ -620,7 +619,7 @@ interface DirectMessage {
   "is_group": false,
   "members": [
     { "user_id": 1, "username": "alice", "avatar_color": "#EF4444", "display_name": "Alice Johnson" },
-    { "user_id": 3, "username": "charlie", "avatar_color": "#10B981", "display_name": "Charlie Davis" }
+    { "user_id": 3, "username": "charlie", "avatar_color": "#10B981", "display_name": "Charlie Brown" }
   ],
   "last_message_preview": null,
   "last_message_at": null,
@@ -784,8 +783,8 @@ A right-side panel showing threaded replies to a parent message. Displays the or
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `limit` | integer | No | `50` | Maximum number of replies to return |
-| `before` | string | No | — | ISO 8601 timestamp — return replies before this time |
+| `limit` | integer | No | `100` | Maximum number of replies to return (max 200) |
+| `offset` | integer | No | `0` | Pagination offset |
 
 **Request Body:** None
 
@@ -794,67 +793,66 @@ A right-side panel showing threaded replies to a parent message. Displays the or
 ```typescript
 interface ThreadReply {
   id: number;
-  parent_message_id: number;
-  user_id: number;
+  channel_id: number;
   content: string;
+  created_at: string;
+  user_id: number;
   username: string;
   avatar_color: string;
-  created_at: string;
 }
 
 interface ThreadResponse {
-  parent_message: {
+  parent: {
     id: number;
     channel_id: number;
     user_id: number;
     content: string;
+    created_at: string;
     username: string;
     avatar_color: string;
-    created_at: string;
-  };
+  } | null;
   replies: ThreadReply[];
-  reply_count: number;
 }
 ```
 
+> **Note:** If the parent message ID does not match any existing message, the endpoint returns `200 OK` with `{ "parent": null, "replies": [] }` rather than `404`.
+
 **Error Responses:**
-- `404 Not Found` — `{ "error": "Message not found" }`
-- `500 Internal Server Error` — `{ "error": "Failed to fetch thread" }`
+- `500 Internal Server Error` — `{ "error": "Failed to fetch thread replies" }`
 
 **Example Response:**
 
 ```json
 {
-  "parent_message": {
+  "parent": {
     "id": 1,
     "channel_id": 1,
     "user_id": 1,
     "content": "Welcome to the general channel!",
+    "created_at": "2024-07-01T09:00:00.000Z",
     "username": "alice",
-    "avatar_color": "#EF4444",
-    "created_at": "2024-07-01T09:00:00.000Z"
+    "avatar_color": "#EF4444"
   },
   "replies": [
     {
-      "id": 1,
-      "parent_message_id": 1,
-      "user_id": 2,
+      "id": 8,
+      "channel_id": 1,
       "content": "Thanks for setting this up Alice!",
+      "created_at": "2024-07-01T09:15:00.000Z",
+      "user_id": 2,
       "username": "bob",
-      "avatar_color": "#3B82F6",
-      "created_at": "2024-07-01T09:15:00.000Z"
+      "avatar_color": "#3B82F6"
     },
     {
-      "id": 2,
-      "parent_message_id": 1,
-      "user_id": 3,
+      "id": 9,
+      "channel_id": 1,
       "content": "Excited to be part of the team 🎉",
+      "created_at": "2024-07-01T09:20:00.000Z",
+      "user_id": 3,
       "username": "charlie",
-      "avatar_color": "#10B981",
-      "created_at": "2024-07-01T09:20:00.000Z"
+      "avatar_color": "#10B981"
     }
-  ],
-  "reply_count": 2
+  ]
 }
 ```
 
@@ -884,19 +882,18 @@ interface CreateThreadReplyRequest {
 ```typescript
 interface ThreadReply {
   id: number;
-  parent_message_id: number;
-  user_id: number;
   content: string;
+  created_at: string;
+  user_id: number;
   username: string;
   avatar_color: string;
-  created_at: string;
 }
 ```
 
 **Error Responses:**
 - `400 Bad Request` — `{ "error": "user_id and content are required" }`
 - `404 Not Found` — `{ "error": "Parent message not found" }`
-- `500 Internal Server Error` — `{ "error": "Failed to create thread reply" }`
+- `500 Internal Server Error` — `{ "error": "Failed to add thread reply" }`
 
 **Example Request:**
 
@@ -911,13 +908,12 @@ interface ThreadReply {
 
 ```json
 {
-  "id": 3,
-  "parent_message_id": 1,
-  "user_id": 2,
+  "id": 11,
   "content": "Great point! I agree completely.",
+  "created_at": "2024-07-15T14:30:00.000Z",
+  "user_id": 2,
   "username": "bob",
-  "avatar_color": "#3B82F6",
-  "created_at": "2024-07-15T14:30:00.000Z"
+  "avatar_color": "#3B82F6"
 }
 ```
 
@@ -1056,7 +1052,7 @@ This screen consumes the same `GET /api/users` endpoint documented in [Screen 1:
     "created_at": "2024-07-01T00:00:00.000Z",
     "status_emoji": "🎧",
     "status_text": "In a meeting",
-    "display_name": "Charlie Davis",
+    "display_name": "Charlie Brown",
     "title": "DevOps Engineer"
   }
 ]
@@ -1083,8 +1079,8 @@ Global search view with a query input, tab filters for result types (Messages, F
 |-----------|------|----------|---------|-------------|
 | `q` | string | Yes | — | Search query string |
 | `type` | string | No | `all` | Filter by result type: `all`, `messages`, `channels`, `files`, `people` |
-| `from` | string | No | — | Filter messages by sender username |
-| `in` | string | No | — | Filter messages by channel name |
+| `from` | integer | No | — | Filter messages by sender (`user_id`). Must be a valid numeric user ID. |
+| `in` | integer | No | — | Filter messages by channel (`channel_id`). Must be a valid numeric channel ID. |
 | `before` | string | No | — | ISO 8601 date — results created before this date |
 | `after` | string | No | — | ISO 8601 date — results created after this date |
 | `limit` | integer | No | `20` | Maximum number of results to return |
@@ -1123,13 +1119,13 @@ interface SearchResponse {
 ```
 
 **Error Responses:**
-- `400 Bad Request` — `{ "error": "Search query (q) is required" }`
+- `400 Bad Request` — `{ "error": "Search query parameter 'q' is required" }`
 - `500 Internal Server Error` — `{ "error": "Failed to perform search" }`
 
 **Example Request:**
 
 ```
-GET /api/search?q=deployment&type=messages&in=engineering
+GET /api/search?q=deployment&type=messages&in=3
 ```
 
 **Example Response:**
@@ -1155,7 +1151,7 @@ GET /api/search?q=deployment&type=messages&in=engineering
   "filters": {
     "type": "messages",
     "from": null,
-    "in": "engineering",
+    "in": "3",
     "before": null,
     "after": null
   }
@@ -1182,10 +1178,8 @@ Displays a chronological feed of activity relevant to the current user — menti
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `user_id` | integer | Yes | — | User ID whose activity feed to fetch |
-| `type` | string | No | `all` | Filter by activity type: `all`, `mention`, `thread_reply`, `reaction`, `app_notification` |
-| `limit` | integer | No | `30` | Maximum number of activity items to return |
+| `limit` | integer | No | `50` | Maximum number of activity items to return |
 | `offset` | integer | No | `0` | Number of items to skip |
-| `unread_only` | boolean | No | `false` | If `true`, return only unread activity items |
 
 **Request Body:** None
 
@@ -1194,18 +1188,15 @@ Displays a chronological feed of activity relevant to the current user — menti
 ```typescript
 interface ActivityItem {
   id: number;
-  type: "mention" | "thread_reply" | "reaction" | "app_notification";
+  type: "mention" | "thread_reply" | "reaction";
   message_id: number | null;
+  acting_user_id: number;
   channel_id: number | null;
-  channel_name: string | null;
-  actor_id: number;
-  actor_username: string;
-  actor_avatar_color: string;
-  content: string;
-  context_message: string | null;
-  emoji: string | null;
   created_at: string;
-  read: boolean;
+  content_preview: string;
+  username: string;
+  avatar_color: string;
+  channel_name: string | null;
 }
 
 type Response = ActivityItem[];
@@ -1223,46 +1214,37 @@ type Response = ActivityItem[];
     "id": 1,
     "type": "mention",
     "message_id": 5,
+    "acting_user_id": 1,
     "channel_id": 2,
-    "channel_name": "random",
-    "actor_id": 1,
-    "actor_username": "alice",
-    "actor_avatar_color": "#EF4444",
-    "content": "Hey @bob, did you see the game?",
-    "context_message": null,
-    "emoji": null,
     "created_at": "2024-07-15T10:00:00.000Z",
-    "read": false
+    "content_preview": "Hey @bob, did you see the game?",
+    "username": "alice",
+    "avatar_color": "#EF4444",
+    "channel_name": "random"
   },
   {
-    "id": 2,
+    "id": 9,
     "type": "thread_reply",
-    "message_id": 6,
+    "message_id": 9,
+    "acting_user_id": 3,
     "channel_id": 3,
-    "channel_name": "engineering",
-    "actor_id": 3,
-    "actor_username": "charlie",
-    "actor_avatar_color": "#10B981",
-    "content": "Nice work! I will review it today.",
-    "context_message": "Just pushed the new deployment pipeline.",
-    "emoji": null,
     "created_at": "2024-07-15T09:30:00.000Z",
-    "read": true
+    "content_preview": "Nice work! I will review it today.",
+    "username": "charlie",
+    "avatar_color": "#10B981",
+    "channel_name": "engineering"
   },
   {
-    "id": 3,
+    "id": 1,
     "type": "reaction",
     "message_id": 1,
+    "acting_user_id": 2,
     "channel_id": 1,
-    "channel_name": "general",
-    "actor_id": 2,
-    "actor_username": "bob",
-    "actor_avatar_color": "#3B82F6",
-    "content": "Welcome to the general channel!",
-    "context_message": null,
-    "emoji": "👋",
     "created_at": "2024-07-15T08:15:00.000Z",
-    "read": true
+    "content_preview": "👋 on: Welcome to the general channel!",
+    "username": "bob",
+    "avatar_color": "#3B82F6",
+    "channel_name": "general"
   }
 ]
 ```
@@ -1289,8 +1271,7 @@ Displays the list of messages and files the current user has saved/bookmarked, s
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `user_id` | integer | Yes | — | User ID whose saved items to fetch |
-| `type` | string | No | `all` | Filter by saved item type: `all`, `message`, `file` |
-| `limit` | integer | No | `50` | Maximum number of saved items to return |
+| `limit` | integer | No | `100` | Maximum number of saved items to return (max 200) |
 | `offset` | integer | No | `0` | Number of items to skip |
 
 **Request Body:** None
@@ -1303,14 +1284,15 @@ interface SavedItem {
   user_id: number;
   message_id: number | null;
   file_id: number | null;
-  item_type: "message" | "file";
-  content: string;
-  channel_name: string;
-  channel_id: number;
-  username: string;
-  avatar_color: string;
   saved_at: string;
-  original_created_at: string;
+  message_content: string | null;       // Enriched — from messages table
+  message_created_at: string | null;    // Enriched — from messages table
+  message_username: string | null;      // Enriched — from users table via messages
+  message_avatar_color: string | null;  // Enriched — from users table via messages
+  file_name: string | null;             // Enriched — from files table
+  file_type: string | null;             // Enriched — from files table
+  file_size: number | null;             // Enriched — from files table
+  source_channel: string | null;        // Enriched — from channels table
 }
 
 type Response = SavedItem[];
@@ -1329,28 +1311,30 @@ type Response = SavedItem[];
     "user_id": 1,
     "message_id": 6,
     "file_id": null,
-    "item_type": "message",
-    "content": "Just pushed the new deployment pipeline.",
-    "channel_name": "engineering",
-    "channel_id": 3,
-    "username": "bob",
-    "avatar_color": "#3B82F6",
     "saved_at": "2024-07-15T10:00:00.000Z",
-    "original_created_at": "2024-07-01T09:30:00.000Z"
+    "message_content": "Just pushed the new deployment pipeline.",
+    "message_created_at": "2024-07-01T09:30:00.000Z",
+    "message_username": "bob",
+    "message_avatar_color": "#3B82F6",
+    "file_name": null,
+    "file_type": null,
+    "file_size": null,
+    "source_channel": "engineering"
   },
   {
     "id": 2,
     "user_id": 1,
     "message_id": 1,
     "file_id": null,
-    "item_type": "message",
-    "content": "Welcome to the general channel!",
-    "channel_name": "general",
-    "channel_id": 1,
-    "username": "alice",
-    "avatar_color": "#EF4444",
     "saved_at": "2024-07-14T16:00:00.000Z",
-    "original_created_at": "2024-07-01T09:00:00.000Z"
+    "message_content": "Welcome to the general channel!",
+    "message_created_at": "2024-07-01T09:00:00.000Z",
+    "message_username": "alice",
+    "message_avatar_color": "#EF4444",
+    "file_name": null,
+    "file_type": null,
+    "file_size": null,
+    "source_channel": "general"
   }
 ]
 ```
@@ -1387,8 +1371,7 @@ interface SavedItem {
 ```
 
 **Error Responses:**
-- `400 Bad Request` — `{ "error": "user_id and either message_id or file_id are required" }`
-- `409 Conflict` — `{ "error": "Item already saved" }`
+- `400 Bad Request` — `{ "error": "user_id is required" }` or `{ "error": "message_id or file_id is required" }`
 - `500 Internal Server Error` — `{ "error": "Failed to save item" }`
 
 **Example Request:**
@@ -1477,14 +1460,12 @@ interface FileItem {
   name: string;
   file_type: string;
   file_size: number;
-  mime_type: string;
   uploaded_by: number;
-  uploader_name: string;
-  uploader_avatar_color: string;
-  channel_id: number;
-  channel_name: string;
+  channel_id: number | null;
   thumbnail_url: string | null;
   created_at: string;
+  username: string;           // Enriched — from users table via JOIN
+  channel_name: string | null; // Enriched — from channels table via LEFT JOIN
 }
 
 type Response = FileItem[];
@@ -1502,42 +1483,36 @@ type Response = FileItem[];
     "name": "architecture-diagram.png",
     "file_type": "image",
     "file_size": 245760,
-    "mime_type": "image/png",
     "uploaded_by": 2,
-    "uploader_name": "bob",
-    "uploader_avatar_color": "#3B82F6",
     "channel_id": 3,
-    "channel_name": "engineering",
     "thumbnail_url": "/files/thumbnails/1.png",
-    "created_at": "2024-07-10T14:30:00.000Z"
+    "created_at": "2024-07-10T14:30:00.000Z",
+    "username": "bob",
+    "channel_name": "engineering"
   },
   {
     "id": 2,
     "name": "Q3-roadmap.pdf",
     "file_type": "pdf",
     "file_size": 1048576,
-    "mime_type": "application/pdf",
     "uploaded_by": 1,
-    "uploader_name": "alice",
-    "uploader_avatar_color": "#EF4444",
     "channel_id": 1,
-    "channel_name": "general",
     "thumbnail_url": null,
-    "created_at": "2024-07-08T10:00:00.000Z"
+    "created_at": "2024-07-08T10:00:00.000Z",
+    "username": "alice",
+    "channel_name": "general"
   },
   {
     "id": 3,
     "name": "deploy-script.sh",
     "file_type": "code",
     "file_size": 2048,
-    "mime_type": "application/x-sh",
     "uploaded_by": 3,
-    "uploader_name": "charlie",
-    "uploader_avatar_color": "#10B981",
     "channel_id": 3,
-    "channel_name": "engineering",
     "thumbnail_url": null,
-    "created_at": "2024-07-05T16:45:00.000Z"
+    "created_at": "2024-07-05T16:45:00.000Z",
+    "username": "charlie",
+    "channel_name": "engineering"
   }
 ]
 ```
@@ -1555,11 +1530,10 @@ type Response = FileItem[];
 ```typescript
 interface UploadFileRequest {
   name: string;           // Required — file name with extension
-  file_type: string;      // Required — file category (image, pdf, document, etc.)
-  file_size: number;      // Required — file size in bytes
-  mime_type: string;      // Required — MIME type
-  uploaded_by: number;    // Required — user ID of the uploader
-  channel_id: number;     // Required — channel where the file is shared
+  type: string;           // Required — file category (image, pdf, document, etc.)
+  size: number;           // Required — file size in bytes
+  user_id: number;        // Required — user ID of the uploader
+  channel_id?: number;    // Optional — channel where the file is shared
   thumbnail_url?: string; // Optional — path to thumbnail image
 }
 ```
@@ -1572,16 +1546,15 @@ interface FileItem {
   name: string;
   file_type: string;
   file_size: number;
-  mime_type: string;
   uploaded_by: number;
-  channel_id: number;
+  channel_id: number | null;
   thumbnail_url: string | null;
   created_at: string;
 }
 ```
 
 **Error Responses:**
-- `400 Bad Request` — `{ "error": "name, file_type, file_size, mime_type, uploaded_by, and channel_id are required" }`
+- `400 Bad Request` — `{ "error": "name, type, size, and user_id are required" }`
 - `500 Internal Server Error` — `{ "error": "Failed to upload file" }`
 
 **Example Request:**
@@ -1589,10 +1562,9 @@ interface FileItem {
 ```json
 {
   "name": "meeting-notes.pdf",
-  "file_type": "pdf",
-  "file_size": 524288,
-  "mime_type": "application/pdf",
-  "uploaded_by": 1,
+  "type": "pdf",
+  "size": 524288,
+  "user_id": 1,
   "channel_id": 1
 }
 ```
@@ -1605,7 +1577,6 @@ interface FileItem {
   "name": "meeting-notes.pdf",
   "file_type": "pdf",
   "file_size": 524288,
-  "mime_type": "application/pdf",
   "uploaded_by": 1,
   "channel_id": 1,
   "thumbnail_url": null,
@@ -1650,7 +1621,6 @@ interface Workspace {
   id: number;
   name: string;
   icon_url: string | null;
-  domain: string;
   member_count: number;
   plan: string;
   created_at: string;
@@ -1667,9 +1637,8 @@ interface Workspace {
   "id": 1,
   "name": "Acme Corp",
   "icon_url": null,
-  "domain": "acme-corp",
   "member_count": 3,
-  "plan": "free",
+  "plan": "pro",
   "created_at": "2024-07-01T00:00:00.000Z"
 }
 ```
@@ -1702,50 +1671,35 @@ Settings modal allowing the current user to configure notification preferences, 
 
 ```typescript
 interface UserPreferences {
-  id: number;
   user_id: number;
   notification_sound: boolean;
   notification_desktop: boolean;
-  notification_email: boolean;
-  notification_mobile: boolean;
-  mute_all: boolean;
-  sidebar_sort: "alphabetical" | "recent" | "priority";
-  sidebar_show_all_channels: boolean;
-  sidebar_show_all_dms: boolean;
+  sidebar_sort: "alpha" | "recent";
   theme: "light" | "dark" | "system";
   language: string;
   timezone: string;
-  message_preview: boolean;
-  emoji_skin_tone: number;
-  updated_at: string;
+  updated_at?: string;      // Present when record exists in DB; absent on default response
 }
 ```
 
+> **Note:** If no preferences record exists for the user, the endpoint returns a default object without `id` or `updated_at`:
+> `{ user_id, notification_sound: true, notification_desktop: true, sidebar_sort: "alpha", theme: "light", language: "en", timezone: "UTC" }`
+
 **Error Responses:**
 - `400 Bad Request` — `{ "error": "user_id is required" }`
-- `404 Not Found` — `{ "error": "Preferences not found" }`
 - `500 Internal Server Error` — `{ "error": "Failed to fetch preferences" }`
 
 **Example Response:**
 
 ```json
 {
-  "id": 1,
   "user_id": 1,
   "notification_sound": true,
   "notification_desktop": true,
-  "notification_email": false,
-  "notification_mobile": true,
-  "mute_all": false,
-  "sidebar_sort": "alphabetical",
-  "sidebar_show_all_channels": true,
-  "sidebar_show_all_dms": false,
+  "sidebar_sort": "alpha",
   "theme": "light",
-  "language": "en-US",
-  "timezone": "America/New_York",
-  "message_preview": true,
-  "emoji_skin_tone": 1,
-  "updated_at": "2024-07-10T12:00:00.000Z"
+  "language": "en",
+  "timezone": "UTC"
 }
 ```
 
@@ -1764,27 +1718,19 @@ interface UpdatePreferencesRequest {
   user_id: number;                           // Required — user ID
   notification_sound?: boolean;
   notification_desktop?: boolean;
-  notification_email?: boolean;
-  notification_mobile?: boolean;
-  mute_all?: boolean;
-  sidebar_sort?: "alphabetical" | "recent" | "priority";
-  sidebar_show_all_channels?: boolean;
-  sidebar_show_all_dms?: boolean;
+  sidebar_sort?: "alpha" | "recent";
   theme?: "light" | "dark" | "system";
   language?: string;
   timezone?: string;
-  message_preview?: boolean;
-  emoji_skin_tone?: number;
 }
 ```
 
 **Response Body (`200 OK`):**
 
-Returns the full updated `UserPreferences` object (same schema as `GET /api/preferences` response).
+Returns the full updated `UserPreferences` object (same schema as `GET /api/preferences` response). Uses UPSERT — creates the preferences record if it does not yet exist.
 
 **Error Responses:**
 - `400 Bad Request` — `{ "error": "user_id is required" }`
-- `404 Not Found` — `{ "error": "Preferences not found" }`
 - `500 Internal Server Error` — `{ "error": "Failed to update preferences" }`
 
 **Example Request:**
@@ -1805,17 +1751,10 @@ Returns the full updated `UserPreferences` object (same schema as `GET /api/pref
   "user_id": 1,
   "notification_sound": true,
   "notification_desktop": true,
-  "notification_email": false,
-  "notification_mobile": true,
-  "mute_all": false,
   "sidebar_sort": "recent",
-  "sidebar_show_all_channels": true,
-  "sidebar_show_all_dms": false,
   "theme": "dark",
-  "language": "en-US",
-  "timezone": "America/New_York",
-  "message_preview": true,
-  "emoji_skin_tone": 1,
+  "language": "en",
+  "timezone": "UTC",
   "updated_at": "2024-07-15T15:30:00.000Z"
 }
 ```
@@ -1859,12 +1798,11 @@ interface ChannelMember {
   id: number;
   channel_id: number;
   user_id: number;
-  username: string;
-  avatar_color: string;
-  display_name: string | null;
-  title: string | null;
-  role: "owner" | "admin" | "member";
+  role: string;                   // "owner", "admin", or "member"
   joined_at: string;
+  username: string;               // Enriched from users table
+  avatar_color: string;           // Enriched from users table
+  display_name: string | null;    // Enriched from user_statuses table
 }
 
 type Response = ChannelMember[];
@@ -1882,34 +1820,31 @@ type Response = ChannelMember[];
     "id": 1,
     "channel_id": 1,
     "user_id": 1,
+    "role": "owner",
+    "joined_at": "2024-07-01T00:00:00.000Z",
     "username": "alice",
     "avatar_color": "#EF4444",
-    "display_name": "Alice Johnson",
-    "title": "Engineering Manager",
-    "role": "owner",
-    "joined_at": "2024-07-01T00:00:00.000Z"
+    "display_name": "Alice Johnson"
   },
   {
     "id": 2,
     "channel_id": 1,
     "user_id": 2,
+    "role": "member",
+    "joined_at": "2024-07-01T00:00:00.000Z",
     "username": "bob",
     "avatar_color": "#3B82F6",
-    "display_name": "Bob Smith",
-    "title": "Senior Developer",
-    "role": "member",
-    "joined_at": "2024-07-01T00:00:00.000Z"
+    "display_name": "Bob Smith"
   },
   {
     "id": 3,
     "channel_id": 1,
     "user_id": 3,
+    "role": "member",
+    "joined_at": "2024-07-01T00:00:00.000Z",
     "username": "charlie",
     "avatar_color": "#10B981",
-    "display_name": "Charlie Davis",
-    "title": "DevOps Engineer",
-    "role": "member",
-    "joined_at": "2024-07-01T00:00:00.000Z"
+    "display_name": "Charlie Brown"
   }
 ]
 ```
@@ -2011,7 +1946,12 @@ interface ChannelMember {
 |-----------|------|----------|-------------|
 | `id` | integer | Yes | Channel ID |
 
-**Query Parameters:** None
+**Query Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `limit` | integer | No | `100` | Maximum number of pins to return (max 200) |
+| `offset` | integer | No | `0` | Number of pins to skip |
 
 **Request Body:** None
 
@@ -2022,13 +1962,11 @@ interface PinnedMessage {
   id: number;
   message_id: number;
   channel_id: number;
-  content: string;
-  username: string;
-  avatar_color: string;
   pinned_by: number;
-  pinned_by_username: string;
-  pinned_at: string;
-  message_created_at: string;
+  created_at: string;            // When the pin was created
+  content: string;               // Message content (from messages table)
+  message_created_at: string;    // When the original message was sent
+  username: string;              // Message author's username
 }
 
 type Response = PinnedMessage[];
@@ -2046,13 +1984,11 @@ type Response = PinnedMessage[];
     "id": 1,
     "message_id": 1,
     "channel_id": 1,
-    "content": "Welcome to the general channel!",
-    "username": "alice",
-    "avatar_color": "#EF4444",
     "pinned_by": 1,
-    "pinned_by_username": "alice",
-    "pinned_at": "2024-07-02T10:00:00.000Z",
-    "message_created_at": "2024-07-01T09:00:00.000Z"
+    "created_at": "2024-07-02T10:00:00.000Z",
+    "content": "Welcome to the general channel!",
+    "message_created_at": "2024-07-01T09:00:00.000Z",
+    "username": "alice"
   }
 ]
 ```
@@ -2096,10 +2032,8 @@ Returns an array of `FileItem` objects (same schema as `GET /api/files` in [Scre
     "name": "architecture-diagram.png",
     "file_type": "image",
     "file_size": 245760,
-    "mime_type": "image/png",
     "uploaded_by": 2,
-    "uploader_name": "bob",
-    "uploader_avatar_color": "#3B82F6",
+    "username": "bob",
     "channel_id": 3,
     "channel_name": "engineering",
     "thumbnail_url": "/files/thumbnails/1.png",
@@ -2142,22 +2076,20 @@ interface UserProfile {
   id: number;
   username: string;
   avatar_color: string;
+  created_at: string;
+  status_emoji: string | null;     // From user_statuses table (LEFT JOIN)
+  status_text: string | null;
   display_name: string | null;
   title: string | null;
-  status_emoji: string | null;
-  status_text: string | null;
-  status_expiry: string | null;
-  timezone: string;
+  timezone: string | null;
   email: string | null;
   phone: string | null;
-  skype: string | null;
-  created_at: string;
 }
 ```
 
 **Error Responses:**
 - `404 Not Found` — `{ "error": "User not found" }`
-- `500 Internal Server Error` — `{ "error": "Failed to fetch user profile" }`
+- `500 Internal Server Error` — `{ "error": "Failed to fetch user" }`
 
 **Example Response:**
 
@@ -2166,16 +2098,14 @@ interface UserProfile {
   "id": 1,
   "username": "alice",
   "avatar_color": "#EF4444",
-  "display_name": "Alice Johnson",
-  "title": "Engineering Manager",
+  "created_at": "2024-07-01T00:00:00.000Z",
   "status_emoji": "🏠",
   "status_text": "Working from home",
-  "status_expiry": "2024-07-15T18:00:00.000Z",
+  "display_name": "Alice Johnson",
+  "title": "Senior Engineer",
   "timezone": "America/New_York",
   "email": "alice@acme.com",
-  "phone": "+1-555-0101",
-  "skype": null,
-  "created_at": "2024-07-01T00:00:00.000Z"
+  "phone": "+1-555-0101"
 }
 ```
 
@@ -2183,7 +2113,7 @@ interface UserProfile {
 
 ### `GET /api/users/:id/status`
 
-**Description:** Fetch the current status for a specific user (emoji, text, and expiry).
+**Description:** Fetch the full status record for a specific user. Returns all columns from `user_statuses` including profile fields (display_name, title, etc.).
 
 **Path Parameters:**
 
@@ -2199,27 +2129,39 @@ interface UserProfile {
 
 ```typescript
 interface UserStatus {
+  id: number;
   user_id: number;
   status_emoji: string | null;
   status_text: string | null;
-  status_expiry: string | null;
+  display_name: string | null;
+  title: string | null;
+  timezone: string | null;
+  email: string | null;
+  phone: string | null;
+  expires_at: string | null;
   updated_at: string;
 }
 ```
 
 **Error Responses:**
-- `404 Not Found` — `{ "error": "User not found" }`
+- `404 Not Found` — `{ "error": "Status not found" }`
 - `500 Internal Server Error` — `{ "error": "Failed to fetch user status" }`
 
 **Example Response:**
 
 ```json
 {
+  "id": 1,
   "user_id": 1,
   "status_emoji": "🏠",
   "status_text": "Working from home",
-  "status_expiry": "2024-07-15T18:00:00.000Z",
-  "updated_at": "2024-07-15T09:00:00.000Z"
+  "display_name": "Alice Johnson",
+  "title": "Senior Engineer",
+  "timezone": "America/New_York",
+  "email": "alice@acme.com",
+  "phone": "+1-555-0101",
+  "expires_at": null,
+  "updated_at": "2024-07-01T00:00:00.000Z"
 }
 ```
 
@@ -2227,7 +2169,7 @@ interface UserStatus {
 
 ### `PUT /api/users/:id/status`
 
-**Description:** Update the status for a specific user. Set `status_emoji` and `status_text` to `null` to clear the status.
+**Description:** Create or update the status for a specific user via UPSERT. If no status record exists, one is created.
 
 **Path Parameters:**
 
@@ -2239,35 +2181,28 @@ interface UserStatus {
 
 ```typescript
 interface UpdateStatusRequest {
-  status_emoji: string | null;    // Required — emoji for status (null to clear)
-  status_text: string | null;     // Required — status text (null to clear)
-  status_expiry?: string | null;  // Optional — ISO 8601 timestamp when status expires
+  emoji: string;                // Required — emoji for status
+  text: string;                 // Required — status text
+  expiry?: string | null;       // Optional — ISO 8601 timestamp when status expires
 }
 ```
 
 **Response Body (`200 OK`):**
 
-```typescript
-interface UserStatus {
-  user_id: number;
-  status_emoji: string | null;
-  status_text: string | null;
-  status_expiry: string | null;
-  updated_at: string;
-}
-```
+Returns the full `UserStatus` object (same schema as `GET /api/users/:id/status` response) after UPSERT.
 
 **Error Responses:**
-- `404 Not Found` — `{ "error": "User not found" }`
+- `400 Bad Request` — `{ "error": "emoji and text are required" }`
+- `404 Not Found` — `{ "error": "User not found" }` (FK violation — user ID does not exist)
 - `500 Internal Server Error` — `{ "error": "Failed to update user status" }`
 
 **Example Request:**
 
 ```json
 {
-  "status_emoji": "🎧",
-  "status_text": "In a meeting",
-  "status_expiry": "2024-07-15T17:00:00.000Z"
+  "emoji": "🎧",
+  "text": "In a meeting",
+  "expiry": "2024-07-15T17:00:00.000Z"
 }
 ```
 
@@ -2275,10 +2210,16 @@ interface UserStatus {
 
 ```json
 {
+  "id": 1,
   "user_id": 1,
   "status_emoji": "🎧",
   "status_text": "In a meeting",
-  "status_expiry": "2024-07-15T17:00:00.000Z",
+  "display_name": "Alice Johnson",
+  "title": "Senior Engineer",
+  "timezone": "America/New_York",
+  "email": "alice@acme.com",
+  "phone": "+1-555-0101",
+  "expires_at": "2024-07-15T17:00:00.000Z",
   "updated_at": "2024-07-15T16:00:00.000Z"
 }
 ```
@@ -2398,7 +2339,7 @@ The following endpoints support functionality shared across multiple screens —
 
 ### `GET /api/messages/:id/reactions`
 
-**Description:** List all reactions on a specific message, grouped by emoji with the list of users who reacted.
+**Description:** List all reactions on a specific message, grouped by emoji with the list of users who reacted. Returns an empty array `[]` if no reactions exist or the message ID does not exist (no 404).
 
 **Path Parameters:**
 
@@ -2413,20 +2354,24 @@ The following endpoints support functionality shared across multiple screens —
 **Response Body (`200 OK`):**
 
 ```typescript
-interface Reaction {
-  emoji: string;
-  count: number;
-  users: {
-    user_id: number;
-    username: string;
-  }[];
+interface ReactionUser {
+  id: number;
+  username: string;
+  avatar_color: string;
 }
 
-type Response = Reaction[];
+interface ReactionGroup {
+  emoji: string;
+  count: number;
+  users: ReactionUser[];
+}
+
+type Response = ReactionGroup[];
 ```
 
+> **Note:** For non-existent message IDs, the endpoint returns `200` with an empty array `[]`, not `404`.
+
 **Error Responses:**
-- `404 Not Found` — `{ "error": "Message not found" }`
 - `500 Internal Server Error` — `{ "error": "Failed to fetch reactions" }`
 
 **Example Response:**
@@ -2437,16 +2382,16 @@ type Response = Reaction[];
     "emoji": "👋",
     "count": 3,
     "users": [
-      { "user_id": 1, "username": "alice" },
-      { "user_id": 2, "username": "bob" },
-      { "user_id": 3, "username": "charlie" }
+      { "id": 1, "username": "alice", "avatar_color": "#EF4444" },
+      { "id": 2, "username": "bob", "avatar_color": "#3B82F6" },
+      { "id": 3, "username": "charlie", "avatar_color": "#10B981" }
     ]
   },
   {
     "emoji": "🎉",
     "count": 1,
     "users": [
-      { "user_id": 2, "username": "bob" }
+      { "id": 2, "username": "bob", "avatar_color": "#3B82F6" }
     ]
   }
 ]
@@ -2571,7 +2516,7 @@ interface PinResponse {
   message_id: number;
   channel_id: number;
   pinned_by: number;
-  pinned_at: string;
+  created_at: string;
 }
 ```
 
@@ -2597,7 +2542,7 @@ interface PinResponse {
   "message_id": 6,
   "channel_id": 3,
   "pinned_by": 1,
-  "pinned_at": "2024-07-15T17:00:00.000Z"
+  "created_at": "2024-07-15T17:00:00.000Z"
 }
 ```
 
@@ -2639,26 +2584,25 @@ The following tables support all API endpoints documented above. All tables foll
 |-------|---------|--------------|
 | `users` | `id`, `username`, `avatar_color`, `created_at` | 3 (alice, bob, charlie) |
 | `channels` | `id`, `name`, `description`, `created_by` → users, `created_at` | 3 (general, random, engineering) |
-| `messages` | `id`, `channel_id` → channels, `user_id` → users, `content`, `created_at` | 7 messages across 3 channels |
+| `messages` | `id`, `channel_id` → channels, `user_id` → users, `content`, `created_at` | 10 messages across 3 channels (7 original + 3 thread replies) |
 
 ### New Tables
 
 | Table | Columns | Purpose |
 |-------|---------|---------|
-| `user_statuses` | `id`, `user_id` → users, `status_emoji`, `status_text`, `status_expiry`, `updated_at` | User status (emoji + text + expiry) |
-| `user_profiles` | `id`, `user_id` → users, `display_name`, `title`, `timezone`, `email`, `phone`, `skype` | Extended user profile info |
-| `user_preferences` | `id`, `user_id` → users, `notification_sound`, `notification_desktop`, `notification_email`, `notification_mobile`, `mute_all`, `sidebar_sort`, `sidebar_show_all_channels`, `sidebar_show_all_dms`, `theme`, `language`, `timezone`, `message_preview`, `emoji_skin_tone`, `updated_at` | User preference settings |
+| `user_statuses` | `id`, `user_id` → users (UNIQUE), `status_emoji`, `status_text`, `display_name`, `title`, `timezone`, `email`, `phone`, `expires_at`, `updated_at` | User status and extended profile info (combined table) |
+| `user_preferences` | `id`, `user_id` → users (UNIQUE), `notification_sound`, `notification_desktop`, `sidebar_sort`, `theme`, `language`, `timezone`, `updated_at` | User preference settings |
 | `channel_members` | `id`, `channel_id` → channels, `user_id` → users, `role`, `joined_at` | Channel membership with roles |
-| `threads` | `id`, `parent_message_id` → messages, `user_id` → users, `content`, `created_at` | Thread replies to messages |
-| `reactions` | `id`, `message_id` → messages, `user_id` → users, `emoji`, `created_at` | Emoji reactions on messages |
-| `pins` | `id`, `message_id` → messages, `channel_id` → channels, `pinned_by` → users, `pinned_at` | Pinned messages per channel |
+| `threads` | `id`, `parent_message_id` → messages, `reply_message_id` → messages, `channel_id` → channels, `reply_count`, `last_reply_at`, `created_at` | Thread reply junction table linking parent messages to reply messages |
+| `reactions` | `id`, `message_id` → messages, `user_id` → users, `emoji`, `created_at` | Emoji reactions on messages (UNIQUE on message_id, user_id, emoji) |
+| `pins` | `id`, `message_id` → messages, `channel_id` → channels, `pinned_by` → users, `created_at` | Pinned messages per channel |
 | `direct_messages` | `id`, `created_by` → users, `is_group`, `created_at` | DM conversation containers |
 | `dm_members` | `id`, `dm_id` → direct_messages, `user_id` → users, `joined_at` | DM conversation membership |
 | `dm_messages` | `id`, `dm_id` → direct_messages, `user_id` → users, `content`, `created_at` | Messages within DM conversations |
-| `files` | `id`, `name`, `file_type`, `file_size`, `mime_type`, `uploaded_by` → users, `channel_id` → channels, `thumbnail_url`, `created_at` | Shared file metadata |
+| `files` | `id`, `name`, `file_type`, `file_size`, `uploaded_by` → users, `channel_id` → channels (nullable), `thumbnail_url`, `created_at` | Shared file metadata |
 | `saved_items` | `id`, `user_id` → users, `message_id` → messages (nullable), `file_id` → files (nullable), `saved_at` | User-bookmarked messages and files |
-| `workspace` | `id`, `name`, `icon_url`, `domain`, `member_count`, `plan`, `created_at` | Workspace metadata (single row) |
-| `mentions` | `id`, `message_id` → messages, `mentioned_user_id` → users, `channel_id` → channels, `created_at` | Tracked @mentions for activity feed |
+| `workspace` | `id`, `name`, `icon_url`, `member_count`, `plan`, `created_at` | Workspace metadata (single row) |
+| `mentions` | `id`, `message_id` → messages, `mentioned_user_id` → users, `channel_id` → channels, `read`, `created_at` | Tracked @mentions for activity feed |
 
 ### Index Strategy
 
@@ -2681,7 +2625,7 @@ CREATE INDEX idx_channel_members_user ON channel_members(user_id);
 CREATE INDEX idx_mentions_user ON mentions(mentioned_user_id);
 CREATE INDEX idx_mentions_message ON mentions(message_id);
 CREATE INDEX idx_user_statuses_user ON user_statuses(user_id);
-CREATE INDEX idx_user_profiles_user ON user_profiles(user_id);
+CREATE INDEX idx_user_preferences_user ON user_preferences(user_id);
 ```
 
 ---
@@ -2756,9 +2700,9 @@ All example responses in this document use mock data consistent with the seed da
 
 | ID | Username | Avatar Color | Display Name | Title |
 |----|----------|--------------|--------------|-------|
-| 1 | alice | `#EF4444` | Alice Johnson | Engineering Manager |
-| 2 | bob | `#3B82F6` | Bob Smith | Senior Developer |
-| 3 | charlie | `#10B981` | Charlie Davis | DevOps Engineer |
+| 1 | alice | `#EF4444` | Alice Johnson | Senior Engineer |
+| 2 | bob | `#3B82F6` | Bob Smith | Product Manager |
+| 3 | charlie | `#10B981` | Charlie Brown | Designer |
 
 ### Channels
 
@@ -2779,9 +2723,12 @@ All example responses in this document use mock data consistent with the seed da
 | 5 | random (2) | alice (1) | It was amazing! |
 | 6 | engineering (3) | bob (2) | Just pushed the new deployment pipeline. |
 | 7 | engineering (3) | charlie (3) | Nice work! I will review it today. |
+| 8 | general (1) | bob (2) | Thanks Alice, great to be here! |
+| 9 | general (1) | charlie (3) | Welcome channel is the best! |
+| 10 | engineering (3) | charlie (3) | Looks good! Ship it! |
 
 ### Workspace
 
-| ID | Name | Domain | Plan |
-|----|------|--------|------|
-| 1 | Acme Corp | acme-corp | free |
+| ID | Name | Plan |
+|----|------|------|
+| 1 | Acme Corp | pro |
