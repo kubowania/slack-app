@@ -220,6 +220,54 @@ export default function ChannelPage({ params }: ChannelPageProps) {
     setActiveThread(null);
   };
 
+  /**
+   * Toggle an emoji reaction on a message for the current user.
+   *
+   * Checks whether the current user has already reacted with the given emoji:
+   * - If yes → sends DELETE /api/messages/{id}/reactions to remove the reaction
+   * - If no  → sends POST  /api/messages/{id}/reactions to add the reaction
+   *
+   * After the API call completes, refetches the full message list to update
+   * reaction counts and user lists in the UI.
+   *
+   * QA Issue #3: This handler was previously not wired to MessageBubble's
+   * onReactionClick prop, making existing reaction badges non-interactive.
+   */
+  const handleReactionClick = async (messageId: number, emoji: string) => {
+    if (!currentUser) return;
+
+    // Determine if the current user already reacted with this emoji
+    const msg = messages.find((m) => m.id === messageId);
+    const existingReaction = msg?.reaction_summary?.find(
+      (r) => r.emoji === emoji
+    );
+    const hasReacted = existingReaction?.users?.some(
+      (u) => u.id === currentUser.id
+    );
+
+    try {
+      if (hasReacted) {
+        // Remove the existing reaction
+        await fetch(`/api/messages/${messageId}/reactions`, {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ emoji, user_id: currentUser.id }),
+        });
+      } else {
+        // Add a new reaction
+        await fetch(`/api/messages/${messageId}/reactions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ emoji, user_id: currentUser.id }),
+        });
+      }
+      // Refresh messages to show updated reaction counts
+      fetchMessages();
+    } catch {
+      /* Graceful degradation — reaction toggle failed silently */
+    }
+  };
+
   /* ==== Render ==== */
 
   return (
@@ -239,6 +287,7 @@ export default function ChannelPage({ params }: ChannelPageProps) {
               key={msg.id}
               message={msg}
               onThreadClick={handleThreadClick}
+              onReactionClick={handleReactionClick}
             />
           ))}
           {/* Auto-scroll anchor — invisible element at the bottom of the list */}

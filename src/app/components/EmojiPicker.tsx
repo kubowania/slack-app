@@ -495,6 +495,42 @@ export default function EmojiPicker({
     }
   }, [isOpen]);
 
+  // Viewport boundary detection — repositions picker when it overflows
+  // the right or bottom edge of the viewport (QA Issue #2).
+  // Uses requestAnimationFrame to run after the browser has painted the
+  // picker at its default CSS position, then measures and adjusts.
+  useEffect(() => {
+    if (!isOpen || !pickerRef.current) return;
+
+    // Reset any previous repositioning transform before measuring
+    pickerRef.current.style.transform = "";
+
+    const frameId = requestAnimationFrame(() => {
+      if (!pickerRef.current) return;
+      const rect = pickerRef.current.getBoundingClientRect();
+      const viewportWidth = window.innerWidth;
+      const safetyMargin = 16; // 16px gutter from viewport edges
+
+      let translateX = 0;
+
+      // If the picker overflows the right viewport edge, shift left
+      if (rect.right > viewportWidth - safetyMargin) {
+        translateX = -(rect.right - viewportWidth + safetyMargin);
+      }
+
+      // If the picker overflows the left viewport edge after shifting, clamp
+      if (rect.left + translateX < safetyMargin) {
+        translateX = -(rect.left - safetyMargin);
+      }
+
+      if (translateX !== 0) {
+        pickerRef.current.style.transform = `translateX(${translateX}px)`;
+      }
+    });
+
+    return () => cancelAnimationFrame(frameId);
+  }, [isOpen]);
+
   // -------------------------------------------------------------------------
   // Handlers
   // -------------------------------------------------------------------------

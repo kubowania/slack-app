@@ -138,10 +138,15 @@ export default function MessageBubble({
     setIsHovered(true);
   };
 
-  /** Hide hover state, toolbar, and reaction picker on mouse leave */
+  /**
+   * Hide hover state on mouse leave.
+   * IMPORTANT: Do NOT close the reaction picker here — the picker has its
+   * own close mechanisms (click-outside detection, Escape key, emoji selection).
+   * Closing it on mouse leave creates a race condition where the user cannot
+   * reach the picker before it disappears (QA Issue #1).
+   */
   const handleMouseLeave = (): void => {
     setIsHovered(false);
-    setShowReactionPicker(false);
   };
 
   /** Handle username click — invokes onUserClick callback */
@@ -226,7 +231,9 @@ export default function MessageBubble({
         </div>
 
         {/* ---- Message Content (EXACT from source page.tsx) ---- */}
-        <p className="text-gray-700 text-sm">{message.content}</p>
+        {/* break-words ensures long unbroken strings (URLs, encoded data) wrap
+            within the container instead of overflowing horizontally (QA Issue #4) */}
+        <p className="text-gray-700 text-sm break-words">{message.content}</p>
 
         {/* ---- Reactions Bar (NEW — not in source) ---- */}
         {hasReactions && (
@@ -276,7 +283,10 @@ export default function MessageBubble({
       {/*   .message-actions { opacity: 0; transition: opacity 0.1s ease; } */}
       {/*   .message-hover:hover .message-actions { opacity: 1; }           */}
       {/* ================================================================== */}
-      {showHoverActions && isHovered && (
+      {/* Toolbar visible when hovered OR when reaction picker is open.
+          This prevents the toolbar from disappearing when the user moves
+          the mouse from the message to the picker overlay (QA Issue #1). */}
+      {showHoverActions && (isHovered || showReactionPicker) && (
         <div
           className="message-actions absolute top-0 right-4 flex items-center gap-0.5 bg-white border border-gray-200 rounded shadow-sm"
           role="toolbar"
