@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
+import { escapeILike } from "@/lib/validation";
 
 /**
  * GET /api/search — Global search across messages, channels, and files.
@@ -44,7 +45,8 @@ export async function GET(req: Request) {
     const trimmedQ = q.trim();
 
     // ── 3. Build wildcard search term for ILIKE matching ──
-    const searchTerm = `%${trimmedQ}%`;
+    // Info 2: Escape ILIKE special characters (%, _) to prevent unintended wildcard matching
+    const searchTerm = `%${escapeILike(trimmedQ)}%`;
 
     // ── 4. Accumulate results from each search domain ──
     interface SearchResultItem {

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
+import { parseValidInt } from "@/lib/validation";
 
 /**
  * GET /api/activity
@@ -34,9 +35,10 @@ export async function GET(req: Request) {
     );
   }
 
-  const parsedUserId = parseInt(userId, 10);
+  // Issue 1: Use strict integer validation (rejects floats, overflow, non-numeric)
+  const parsedUserId = parseValidInt(userId);
 
-  if (isNaN(parsedUserId)) {
+  if (parsedUserId === null) {
     return NextResponse.json(
       { error: "user_id must be a valid integer" },
       { status: 400 }

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
+import { parseValidInt, stripNullBytes, MAX_LENGTHS } from "@/lib/validation";
 
 /**
  * GET /api/files
@@ -23,12 +24,26 @@ export async function GET(req: Request) {
     let paramIndex = 1;
 
     if (channelId) {
+      const parsedChannelId = parseValidInt(channelId);
+      if (parsedChannelId === null) {
+        return NextResponse.json(
+          { error: "channel_id must be a valid integer" },
+          { status: 400 },
+        );
+      }
       conditions.push(`f.channel_id = $${paramIndex++}`);
-      params.push(channelId);
+      params.push(parsedChannelId);
     }
     if (userId) {
+      const parsedUserId = parseValidInt(userId);
+      if (parsedUserId === null) {
+        return NextResponse.json(
+          { error: "user_id must be a valid integer" },
+          { status: 400 },
+        );
+      }
       conditions.push(`f.uploaded_by = $${paramIndex++}`);
-      params.push(userId);
+      params.push(parsedUserId);
     }
     if (type) {
       conditions.push(`f.file_type = $${paramIndex++}`);
@@ -99,10 +114,40 @@ export async function POST(req: Request) {
       );
     }
 
+    // Issue 1: Validate numeric IDs
+    const parsedUserId = parseValidInt(user_id);
+    if (parsedUserId === null) {
+      return NextResponse.json(
+        { error: "user_id must be a valid integer" },
+        { status: 400 },
+      );
+    }
+    let parsedChannelId: number | null = null;
+    if (channel_id) {
+      parsedChannelId = parseValidInt(channel_id);
+      if (parsedChannelId === null) {
+        return NextResponse.json(
+          { error: "channel_id must be a valid integer" },
+          { status: 400 },
+        );
+      }
+    }
+
+    // Issue 4 & 5: Sanitize text fields
+    const safeName = stripNullBytes(name).slice(0, MAX_LENGTHS.FILE_NAME);
+    const safeType = stripNullBytes(type).slice(0, MAX_LENGTHS.EMOJI);
+
+    if (safeName.length === 0) {
+      return NextResponse.json(
+        { error: "name must not be empty after sanitization" },
+        { status: 400 },
+      );
+    }
+
     const result = await query(
       `INSERT INTO files (name, file_type, file_size, uploaded_by, channel_id, thumbnail_url)
        VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-      [name, type, size, user_id, channel_id || null, thumbnail_url || null]
+      [safeName, safeType, size, parsedUserId, parsedChannelId, thumbnail_url || null]
     );
 
     return NextResponse.json(result.rows[0], { status: 201 });

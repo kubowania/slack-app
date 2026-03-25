@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
+import { parseValidInt, validateTextContent, MAX_LENGTHS } from "@/lib/validation";
 
 /**
  * GET /api/messages/:id/thread
@@ -13,6 +14,16 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+
+  // Issue 1: Validate message ID is a valid integer
+  const messageId = parseValidInt(id);
+  if (messageId === null) {
+    return NextResponse.json(
+      { error: "Message ID must be a valid integer" },
+      { status: 400 },
+    );
+  }
+
   try {
     const { searchParams } = new URL(req.url);
     const limit = Math.min(parseInt(searchParams.get("limit") || "100", 10) || 100, 200);
@@ -25,7 +36,7 @@ export async function GET(
        FROM messages m
        JOIN users u ON u.id = m.user_id
        WHERE m.id = $1`,
-      [id]
+      [messageId]
     );
 
     /* Fetch thread replies ordered chronologically with LIMIT */
@@ -38,7 +49,7 @@ export async function GET(
        WHERE t.parent_message_id = $1
        ORDER BY m.created_at ASC
        LIMIT $2 OFFSET $3`,
-      [id, limit, offset]
+      [messageId, limit, offset]
     );
 
     return NextResponse.json({
@@ -66,6 +77,16 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+
+  // Issue 1: Validate message ID
+  const messageId = parseValidInt(id);
+  if (messageId === null) {
+    return NextResponse.json(
+      { error: "Message ID must be a valid integer" },
+      { status: 400 },
+    );
+  }
+
   try {
     let body: { user_id?: number; content?: string };
     try {
@@ -85,10 +106,28 @@ export async function POST(
       );
     }
 
+    // Issue 1: Validate user_id
+    const parsedUserId = parseValidInt(user_id);
+    if (parsedUserId === null) {
+      return NextResponse.json(
+        { error: "user_id must be a valid integer" },
+        { status: 400 },
+      );
+    }
+
+    // Issue 4 & 5: Validate content length and strip null bytes
+    const validation = validateTextContent(content, "Content", MAX_LENGTHS.MESSAGE_CONTENT);
+    if (!validation.valid) {
+      return NextResponse.json(
+        { error: validation.error },
+        { status: 400 },
+      );
+    }
+
     // Step 1: Look up parent message to get channel_id
     const parentResult = await query(
       `SELECT channel_id FROM messages WHERE id = $1`,
-      [id]
+      [messageId]
     );
     if (parentResult.rows.length === 0) {
       return NextResponse.json(
@@ -102,14 +141,14 @@ export async function POST(
     const insertResult = await query(
       `INSERT INTO messages (channel_id, user_id, content)
        VALUES ($1, $2, $3) RETURNING *`,
-      [channel_id, user_id, content]
+      [channel_id, parsedUserId, validation.sanitized]
     );
 
     // Step 3: Insert thread relationship (includes channel_id which is NOT NULL)
     await query(
       `INSERT INTO threads (parent_message_id, reply_message_id, channel_id)
        VALUES ($1, $2, $3)`,
-      [id, insertResult.rows[0].id, channel_id]
+      [messageId, insertResult.rows[0].id, channel_id]
     );
 
     // Step 4: Return enriched reply with user info

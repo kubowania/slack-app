@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
+import { parseValidInt } from "@/lib/validation";
 
 /**
  * GET /api/channels/:id/files
@@ -12,6 +13,16 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+
+  // Issue 1: Validate channel ID
+  const channelId = parseValidInt(id);
+  if (channelId === null) {
+    return NextResponse.json(
+      { error: "Channel ID must be a valid integer" },
+      { status: 400 },
+    );
+  }
+
   try {
     const { searchParams } = new URL(req.url);
     const limit = Math.min(parseInt(searchParams.get("limit") || "100", 10) || 100, 200);
@@ -24,7 +35,7 @@ export async function GET(
        WHERE f.channel_id = $1
        ORDER BY f.created_at DESC
        LIMIT $2 OFFSET $3`,
-      [id, limit, offset]
+      [channelId, limit, offset]
     );
     return NextResponse.json(result.rows);
   } catch (err) {

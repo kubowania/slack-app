@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
+import { parseValidInt, validateTextContent, MAX_LENGTHS } from "@/lib/validation";
 
 /**
  * GET /api/dms/:id/messages
@@ -12,6 +13,16 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+
+  // Issue 1: Validate DM ID
+  const dmId = parseValidInt(id);
+  if (dmId === null) {
+    return NextResponse.json(
+      { error: "DM ID must be a valid integer" },
+      { status: 400 },
+    );
+  }
+
   try {
     const { searchParams } = new URL(req.url);
     const limit = Math.min(parseInt(searchParams.get("limit") || "100", 10) || 100, 200);
@@ -24,7 +35,7 @@ export async function GET(
        WHERE m.dm_id = $1
        ORDER BY m.created_at ASC
        LIMIT $2 OFFSET $3`,
-      [id, limit, offset]
+      [dmId, limit, offset]
     );
     return NextResponse.json(result.rows);
   } catch (err) {
@@ -46,6 +57,16 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+
+  // Issue 1: Validate DM ID
+  const dmId = parseValidInt(id);
+  if (dmId === null) {
+    return NextResponse.json(
+      { error: "DM ID must be a valid integer" },
+      { status: 400 },
+    );
+  }
+
   try {
     let body: { user_id?: number; content?: string };
     try {
@@ -64,10 +85,29 @@ export async function POST(
         { status: 400 }
       );
     }
+
+    // Issue 1: Validate user_id
+    const parsedUserId = parseValidInt(user_id);
+    if (parsedUserId === null) {
+      return NextResponse.json(
+        { error: "user_id must be a valid integer" },
+        { status: 400 },
+      );
+    }
+
+    // Issue 4 & 5: Validate content length and strip null bytes
+    const validation = validateTextContent(content, "Content", MAX_LENGTHS.MESSAGE_CONTENT);
+    if (!validation.valid) {
+      return NextResponse.json(
+        { error: validation.error },
+        { status: 400 },
+      );
+    }
+
     const result = await query(
       `INSERT INTO dm_messages (dm_id, user_id, content)
        VALUES ($1, $2, $3) RETURNING *`,
-      [id, user_id, content]
+      [dmId, parsedUserId, validation.sanitized]
     );
     // Return the message with user info
     const msg = await query(

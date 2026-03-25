@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
+import { parseValidInt } from "@/lib/validation";
 
 /**
  * GET /api/saved
@@ -26,6 +27,15 @@ export async function GET(req: Request) {
       );
     }
 
+    // Issue 1: Validate user_id
+    const parsedUserId = parseValidInt(user_id);
+    if (parsedUserId === null) {
+      return NextResponse.json(
+        { error: "user_id must be a valid integer" },
+        { status: 400 },
+      );
+    }
+
     const limit = Math.min(parseInt(searchParams.get("limit") || "100", 10) || 100, 200);
     const offset = parseInt(searchParams.get("offset") || "0", 10) || 0;
 
@@ -47,7 +57,7 @@ export async function GET(req: Request) {
        WHERE si.user_id = $1
        ORDER BY si.saved_at DESC
        LIMIT $2 OFFSET $3`,
-      [user_id, limit, offset]
+      [parsedUserId, limit, offset]
     );
 
     return NextResponse.json(result.rows);
@@ -88,6 +98,15 @@ export async function POST(req: Request) {
       );
     }
 
+    // Issue 1: Validate all numeric IDs
+    const parsedUserId = parseValidInt(user_id);
+    if (parsedUserId === null) {
+      return NextResponse.json(
+        { error: "user_id must be a valid integer" },
+        { status: 400 },
+      );
+    }
+
     if (!message_id && !file_id) {
       return NextResponse.json(
         { error: "message_id or file_id is required" },
@@ -95,9 +114,31 @@ export async function POST(req: Request) {
       );
     }
 
+    let parsedMessageId: number | null = null;
+    if (message_id) {
+      parsedMessageId = parseValidInt(message_id);
+      if (parsedMessageId === null) {
+        return NextResponse.json(
+          { error: "message_id must be a valid integer" },
+          { status: 400 },
+        );
+      }
+    }
+
+    let parsedFileId: number | null = null;
+    if (file_id) {
+      parsedFileId = parseValidInt(file_id);
+      if (parsedFileId === null) {
+        return NextResponse.json(
+          { error: "file_id must be a valid integer" },
+          { status: 400 },
+        );
+      }
+    }
+
     const result = await query(
       "INSERT INTO saved_items (user_id, message_id, file_id) VALUES ($1, $2, $3) RETURNING *",
-      [user_id, message_id || null, file_id || null]
+      [parsedUserId, parsedMessageId, parsedFileId]
     );
 
     return NextResponse.json(result.rows[0], { status: 201 });
@@ -130,9 +171,18 @@ export async function DELETE(req: Request) {
       );
     }
 
+    // Issue 1: Validate saved item ID
+    const parsedId = parseValidInt(id);
+    if (parsedId === null) {
+      return NextResponse.json(
+        { error: "Saved item ID must be a valid integer" },
+        { status: 400 },
+      );
+    }
+
     const result = await query(
       "DELETE FROM saved_items WHERE id = $1 RETURNING id",
-      [id]
+      [parsedId]
     );
 
     if (result.rows.length === 0) {

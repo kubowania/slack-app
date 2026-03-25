@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
+import { parseValidInt } from "@/lib/validation";
 
 /**
  * Helper to detect PostgreSQL unique constraint violations.
@@ -33,6 +34,16 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+
+  // Issue 1: Validate message ID
+  const messageId = parseValidInt(id);
+  if (messageId === null) {
+    return NextResponse.json(
+      { error: "Message ID must be a valid integer" },
+      { status: 400 },
+    );
+  }
+
   try {
     let body: { user_id?: number };
     try {
@@ -53,10 +64,19 @@ export async function POST(
       );
     }
 
+    // Issue 1: Validate user_id
+    const parsedUserId = parseValidInt(user_id);
+    if (parsedUserId === null) {
+      return NextResponse.json(
+        { error: "user_id must be a valid integer" },
+        { status: 400 },
+      );
+    }
+
     // Look up the message to get its channel_id
     const result = await query(
       "SELECT channel_id FROM messages WHERE id = $1",
-      [id]
+      [messageId]
     );
 
     if (result.rows.length === 0) {
@@ -71,7 +91,7 @@ export async function POST(
     // Insert the pin record — UNIQUE constraint on message_id prevents duplicates
     const pinResult = await query(
       "INSERT INTO pins (message_id, channel_id, pinned_by) VALUES ($1, $2, $3) RETURNING *",
-      [id, channel_id, user_id]
+      [messageId, channel_id, parsedUserId]
     );
 
     return NextResponse.json(pinResult.rows[0], { status: 201 });
@@ -107,11 +127,21 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+
+  // Issue 1: Validate message ID
+  const messageId = parseValidInt(id);
+  if (messageId === null) {
+    return NextResponse.json(
+      { error: "Message ID must be a valid integer" },
+      { status: 400 },
+    );
+  }
+
   try {
     // Delete pin record for this message, using RETURNING to verify existence
     const result = await query(
       "DELETE FROM pins WHERE message_id = $1 RETURNING *",
-      [id]
+      [messageId]
     );
 
     if (result.rows.length === 0) {

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
+import { parseValidInt } from "@/lib/validation";
 
 /**
  * GET /api/channels/:id/members
@@ -12,6 +13,16 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+
+  // Issue 1: Validate channel ID
+  const channelId = parseValidInt(id);
+  if (channelId === null) {
+    return NextResponse.json(
+      { error: "Channel ID must be a valid integer" },
+      { status: 400 },
+    );
+  }
+
   try {
     const { searchParams } = new URL(req.url);
     const limit = Math.min(parseInt(searchParams.get("limit") || "100", 10) || 100, 200);
@@ -25,7 +36,7 @@ export async function GET(
        WHERE cm.channel_id = $1
        ORDER BY cm.joined_at ASC
        LIMIT $2 OFFSET $3`,
-      [id, limit, offset]
+      [channelId, limit, offset]
     );
     return NextResponse.json(result.rows);
   } catch (err) {
@@ -48,6 +59,16 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+
+  // Issue 1: Validate channel ID
+  const channelId = parseValidInt(id);
+  if (channelId === null) {
+    return NextResponse.json(
+      { error: "Channel ID must be a valid integer" },
+      { status: 400 },
+    );
+  }
+
   try {
     let body: { user_id?: number; role?: string };
     try {
@@ -66,11 +87,21 @@ export async function POST(
         { status: 400 }
       );
     }
+
+    // Issue 1: Validate user_id
+    const parsedUserId = parseValidInt(user_id);
+    if (parsedUserId === null) {
+      return NextResponse.json(
+        { error: "user_id must be a valid integer" },
+        { status: 400 },
+      );
+    }
+
     const result = await query(
       `INSERT INTO channel_members (channel_id, user_id, role)
        VALUES ($1, $2, $3)
        RETURNING *`,
-      [id, user_id, role || "member"]
+      [channelId, parsedUserId, role || "member"]
     );
     return NextResponse.json(result.rows[0], { status: 201 });
   } catch (err) {
@@ -93,6 +124,16 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+
+  // Issue 1: Validate channel ID
+  const channelId = parseValidInt(id);
+  if (channelId === null) {
+    return NextResponse.json(
+      { error: "Channel ID must be a valid integer" },
+      { status: 400 },
+    );
+  }
+
   try {
     let body: { user_id?: number };
     try {
@@ -111,11 +152,21 @@ export async function DELETE(
         { status: 400 }
       );
     }
+
+    // Issue 1: Validate user_id
+    const parsedUserId = parseValidInt(user_id);
+    if (parsedUserId === null) {
+      return NextResponse.json(
+        { error: "user_id must be a valid integer" },
+        { status: 400 },
+      );
+    }
+
     const result = await query(
       `DELETE FROM channel_members
        WHERE channel_id = $1 AND user_id = $2
        RETURNING *`,
-      [id, user_id]
+      [channelId, parsedUserId]
     );
     if (result.rowCount === 0) {
       return NextResponse.json(

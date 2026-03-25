@@ -55,8 +55,18 @@ export async function GET(request: NextRequest) {
     const total: number = countResult.rows[0]?.total ?? 0;
     const totalPages = Math.max(1, Math.ceil(total / safePerPage));
 
-    // Parse optional user_id for is_member status
-    const userId = userIdParam ? parseInt(userIdParam, 10) : null;
+    // Issue 1: Parse and validate optional user_id for is_member status
+    let userId: number | null = null;
+    if (userIdParam) {
+      const num = Number(userIdParam);
+      if (!Number.isFinite(num) || !Number.isInteger(num) || num < 1 || num > 2147483647) {
+        return NextResponse.json(
+          { error: "user_id must be a valid integer" },
+          { status: 400 },
+        );
+      }
+      userId = num;
+    }
 
     // Fetch channel data with member_count, creator_name, and optional is_member
     const result = await query(

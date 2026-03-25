@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
+import {
+  parseValidInt,
+  stripNullBytes,
+  MAX_LENGTHS,
+} from "@/lib/validation";
 
 /**
  * GET /api/messages/:id/reactions
@@ -16,6 +21,16 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+
+  // Issue 1: Validate message ID is a valid integer
+  const messageId = parseValidInt(id);
+  if (messageId === null) {
+    return NextResponse.json(
+      { error: "Message ID must be a valid integer" },
+      { status: 400 },
+    );
+  }
+
   try {
     const result = await query(
       `SELECT r.emoji, u.id AS user_id, u.username, u.avatar_color
@@ -24,7 +39,7 @@ export async function GET(
        WHERE r.message_id = $1
        ORDER BY r.emoji, r.created_at ASC
        LIMIT 100`,
-      [id]
+      [messageId]
     );
 
     const grouped: Record<
@@ -76,6 +91,16 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+
+  // Issue 1: Validate message ID
+  const messageId = parseValidInt(id);
+  if (messageId === null) {
+    return NextResponse.json(
+      { error: "Message ID must be a valid integer" },
+      { status: 400 },
+    );
+  }
+
   try {
     let body: { emoji?: string; user_id?: number };
     try {
@@ -96,20 +121,32 @@ export async function POST(
       );
     }
 
+    // Issue 1: Validate user_id is a valid integer
+    const parsedUserId = parseValidInt(user_id);
+    if (parsedUserId === null) {
+      return NextResponse.json(
+        { error: "user_id must be a valid integer" },
+        { status: 400 },
+      );
+    }
+
+    // Issues 4 & 5: Sanitize emoji text (strip null bytes, enforce length)
+    const safeEmoji = stripNullBytes(emoji).slice(0, MAX_LENGTHS.EMOJI);
+
     // Use ON CONFLICT DO NOTHING to prevent duplicate reactions
     const result = await query(
       `INSERT INTO reactions (message_id, user_id, emoji)
        VALUES ($1, $2, $3)
        ON CONFLICT (message_id, user_id, emoji) DO NOTHING
        RETURNING *`,
-      [id, user_id, emoji]
+      [messageId, parsedUserId, safeEmoji]
     );
 
     // If no row was returned, the reaction already existed — return existing as no-op
     if (result.rows.length === 0) {
       const existing = await query(
         `SELECT * FROM reactions WHERE message_id = $1 AND user_id = $2 AND emoji = $3`,
-        [id, user_id, emoji]
+        [messageId, parsedUserId, safeEmoji]
       );
       return NextResponse.json(existing.rows[0], { status: 200 });
     }
@@ -142,6 +179,16 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+
+  // Issue 1: Validate message ID
+  const messageId = parseValidInt(id);
+  if (messageId === null) {
+    return NextResponse.json(
+      { error: "Message ID must be a valid integer" },
+      { status: 400 },
+    );
+  }
+
   try {
     let body: { emoji?: string; user_id?: number };
     try {
@@ -162,10 +209,19 @@ export async function DELETE(
       );
     }
 
+    // Issue 1: Validate user_id
+    const parsedUserId = parseValidInt(user_id);
+    if (parsedUserId === null) {
+      return NextResponse.json(
+        { error: "user_id must be a valid integer" },
+        { status: 400 },
+      );
+    }
+
     const result = await query(
       `DELETE FROM reactions
        WHERE message_id = $1 AND user_id = $2 AND emoji = $3`,
-      [id, user_id, emoji]
+      [messageId, parsedUserId, emoji]
     );
 
     if (result.rowCount === 0) {

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
+import { parseValidInt } from "@/lib/validation";
 
 /**
  * Interfaces for database row shapes returned by pg driver.
@@ -154,8 +155,18 @@ export async function POST(req: Request) {
       );
     }
 
-    // Pre-flight validation: verify all provided user IDs exist in the users table
-    const numericIds = member_ids.map((id) => Number(id));
+    // Issue 1: Validate every member_id is a valid integer
+    const numericIds: number[] = [];
+    for (const mid of member_ids) {
+      const parsed = parseValidInt(mid);
+      if (parsed === null) {
+        return NextResponse.json(
+          { error: `Invalid member_id: ${String(mid)}. Must be a valid integer.` },
+          { status: 400 },
+        );
+      }
+      numericIds.push(parsed);
+    }
     const existingUsers = await query(
       `SELECT id FROM users WHERE id = ANY($1)`,
       [numericIds]

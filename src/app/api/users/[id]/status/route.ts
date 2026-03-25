@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
+import { parseValidInt, stripNullBytes, MAX_LENGTHS } from "@/lib/validation";
 
 /**
  * Helper to detect PostgreSQL foreign key constraint violations.
@@ -24,10 +25,20 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+
+  // Issue 1: Validate user ID
+  const userId = parseValidInt(id);
+  if (userId === null) {
+    return NextResponse.json(
+      { error: "User ID must be a valid integer" },
+      { status: 400 },
+    );
+  }
+
   try {
     const result = await query(
       "SELECT * FROM user_statuses WHERE user_id = $1",
-      [id]
+      [userId]
     );
     if (result.rows.length === 0) {
       return NextResponse.json(
@@ -57,6 +68,16 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+
+  // Issue 1: Validate user ID
+  const userId = parseValidInt(id);
+  if (userId === null) {
+    return NextResponse.json(
+      { error: "User ID must be a valid integer" },
+      { status: 400 },
+    );
+  }
+
   try {
     let body: { emoji?: string; text?: string; expiry?: string | null };
     try {
@@ -75,6 +96,24 @@ export async function PUT(
         { status: 400 }
       );
     }
+
+    // Issue 4 & 5: Validate text lengths and strip null bytes
+    const safeEmoji = stripNullBytes(emoji).slice(0, MAX_LENGTHS.EMOJI);
+    const safeText = stripNullBytes(text).slice(0, MAX_LENGTHS.STATUS_TEXT);
+
+    if (safeEmoji.length === 0) {
+      return NextResponse.json(
+        { error: "emoji must not be empty after sanitization" },
+        { status: 400 },
+      );
+    }
+    if (safeText.length === 0) {
+      return NextResponse.json(
+        { error: "text must not be empty after sanitization" },
+        { status: 400 },
+      );
+    }
+
     const result = await query(
       `INSERT INTO user_statuses (user_id, status_emoji, status_text, expires_at)
        VALUES ($1, $2, $3, $4)
@@ -84,7 +123,7 @@ export async function PUT(
            expires_at = EXCLUDED.expires_at,
            updated_at = NOW()
        RETURNING *`,
-      [id, emoji, text, expiry || null]
+      [userId, safeEmoji, safeText, expiry || null]
     );
     return NextResponse.json(result.rows[0]);
   } catch (err) {

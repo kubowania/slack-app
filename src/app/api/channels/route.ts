@@ -1,5 +1,13 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
+import {
+  sanitizeText,
+  validateTextContent,
+  stripNullBytes,
+  parseValidInt,
+  hasJsonContentType,
+  MAX_LENGTHS,
+} from "@/lib/validation";
 
 /**
  * Helper to detect PostgreSQL unique constraint violations.
@@ -48,6 +56,14 @@ export async function GET() {
  * hyphens replacing spaces. Returns 409 Conflict if the channel name already exists.
  */
 export async function POST(req: Request) {
+  // Info 5: Enforce JSON Content-Type on POST requests
+  if (!hasJsonContentType(req)) {
+    return NextResponse.json(
+      { error: "Content-Type must be application/json" },
+      { status: 415 },
+    );
+  }
+
   try {
     let body: { name?: string; description?: string; created_by?: number };
     try {
@@ -66,9 +82,42 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
+
+    // Issue 7: Strip zero-width and bidirectional control characters from
+    // channel names to prevent visual identity confusion / spoofing.
+    const normalizedName = sanitizeText(
+      name.toLowerCase().replace(/\s+/g, "-"),
+    );
+
+    // Issue 6 (channels): Validate channel name length before hitting DB
+    const nameCheck = validateTextContent(
+      normalizedName,
+      "Channel name",
+      MAX_LENGTHS.CHANNEL_NAME,
+    );
+    if (!nameCheck.valid) {
+      return NextResponse.json({ error: nameCheck.error }, { status: 400 });
+    }
+
+    // Validate created_by is a valid integer when provided
+    if (created_by !== undefined && created_by !== null) {
+      const parsedCreatedBy = parseValidInt(created_by);
+      if (parsedCreatedBy === null) {
+        return NextResponse.json(
+          { error: "created_by must be a valid integer" },
+          { status: 400 },
+        );
+      }
+    }
+
+    // Sanitize description (strip null bytes, enforce length)
+    const safeDescription = stripNullBytes(
+      (description || "").slice(0, MAX_LENGTHS.CHANNEL_DESCRIPTION),
+    );
+
     const result = await query(
       "INSERT INTO channels (name, description, created_by) VALUES ($1, $2, $3) RETURNING *",
-      [name.toLowerCase().replace(/\s+/g, "-"), description || "", created_by]
+      [nameCheck.sanitized, safeDescription, created_by]
     );
     return NextResponse.json(result.rows[0], { status: 201 });
   } catch (err) {

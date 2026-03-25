@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
+import { parseValidInt, stripNullBytes } from "@/lib/validation";
 
 /**
  * GET /api/preferences?user_id=<id>
@@ -19,14 +20,23 @@ export async function GET(req: Request) {
       );
     }
 
+    // Issue 1: Validate user_id
+    const parsedUserId = parseValidInt(userId);
+    if (parsedUserId === null) {
+      return NextResponse.json(
+        { error: "user_id must be a valid integer" },
+        { status: 400 },
+      );
+    }
+
     const result = await query(
       "SELECT * FROM user_preferences WHERE user_id = $1",
-      [userId]
+      [parsedUserId]
     );
 
     if (result.rows.length === 0) {
       return NextResponse.json({
-        user_id: parseInt(userId),
+        user_id: parsedUserId,
         notification_sound: true,
         notification_desktop: true,
         sidebar_sort: "alpha",
@@ -90,6 +100,21 @@ export async function PUT(req: Request) {
       );
     }
 
+    // Issue 1: Validate user_id
+    const parsedUserId = parseValidInt(user_id);
+    if (parsedUserId === null) {
+      return NextResponse.json(
+        { error: "user_id must be a valid integer" },
+        { status: 400 },
+      );
+    }
+
+    // Issue 5: Strip null bytes from text fields
+    const safeSidebarSort = stripNullBytes(sidebar_sort || "alpha").slice(0, 50);
+    const safeTheme = stripNullBytes(theme || "light").slice(0, 50);
+    const safeLanguage = stripNullBytes(language || "en").slice(0, 10);
+    const safeTimezone = stripNullBytes(timezone || "UTC").slice(0, 100);
+
     const result = await query(
       `INSERT INTO user_preferences (user_id, notification_sound, notification_desktop, sidebar_sort, theme, language, timezone, updated_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
@@ -103,13 +128,13 @@ export async function PUT(req: Request) {
            updated_at = NOW()
        RETURNING *`,
       [
-        user_id,
+        parsedUserId,
         notification_sound ?? true,
         notification_desktop ?? true,
-        sidebar_sort || "alpha",
-        theme || "light",
-        language || "en",
-        timezone || "UTC",
+        safeSidebarSort,
+        safeTheme,
+        safeLanguage,
+        safeTimezone,
       ]
     );
 

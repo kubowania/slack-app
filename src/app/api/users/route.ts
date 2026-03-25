@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
+import { sanitizeText, hasJsonContentType, MAX_LENGTHS } from "@/lib/validation";
 
 /**
  * Helper to detect PostgreSQL unique constraint violations.
@@ -52,6 +53,14 @@ export async function GET(req: Request) {
  * Returns 400 if the request body is not valid JSON.
  */
 export async function POST(req: Request) {
+  // Info 5: Enforce JSON Content-Type on POST requests
+  if (!hasJsonContentType(req)) {
+    return NextResponse.json(
+      { error: "Content-Type must be application/json" },
+      { status: 415 },
+    );
+  }
+
   try {
     let body: { username?: string; avatar_color?: string };
     try {
@@ -70,9 +79,33 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
+
+    // Info 3: Strip RTL override, zero-width, and bidirectional control
+    // characters from usernames to prevent visual spoofing.
+    // Issue 5: Strip null bytes to prevent PostgreSQL TEXT rejection → 500.
+    const safeUsername = sanitizeText(username);
+
+    // Issue 6: Validate username length before hitting DB VARCHAR(50) constraint.
+    if (safeUsername.length > MAX_LENGTHS.USERNAME) {
+      return NextResponse.json(
+        {
+          error: `Username exceeds maximum length of ${MAX_LENGTHS.USERNAME} characters`,
+        },
+        { status: 400 },
+      );
+    }
+
+    // Reject empty username after sanitization
+    if (safeUsername.trim().length === 0) {
+      return NextResponse.json(
+        { error: "Username is required" },
+        { status: 400 },
+      );
+    }
+
     const result = await query(
       "INSERT INTO users (username, avatar_color) VALUES ($1, $2) RETURNING *",
-      [username, avatar_color || "#6B7280"]
+      [safeUsername, avatar_color || "#6B7280"]
     );
     return NextResponse.json(result.rows[0], { status: 201 });
   } catch (err) {

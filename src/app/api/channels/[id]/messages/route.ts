@@ -1,5 +1,11 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
+import {
+  parseValidInt,
+  validateTextContent,
+  hasJsonContentType,
+  MAX_LENGTHS,
+} from "@/lib/validation";
 
 /**
  * Helper to detect PostgreSQL foreign key constraint violations.
@@ -25,6 +31,16 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+
+  // Issue 1: Validate channel ID is a valid integer before hitting DB
+  const channelId = parseValidInt(id);
+  if (channelId === null) {
+    return NextResponse.json(
+      { error: "Channel ID must be a valid integer" },
+      { status: 400 },
+    );
+  }
+
   try {
     const { searchParams } = new URL(req.url);
     const limit = Math.min(parseInt(searchParams.get("limit") || "100", 10) || 100, 200);
@@ -46,7 +62,7 @@ export async function GET(
       WHERE m.channel_id = $1
       ORDER BY m.created_at ASC
       LIMIT $2 OFFSET $3`,
-      [id, limit, offset]
+      [channelId, limit, offset]
     );
     return NextResponse.json(result.rows);
   } catch (err) {
@@ -70,6 +86,24 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+
+  // Issue 1: Validate channel ID is a valid integer
+  const channelId = parseValidInt(id);
+  if (channelId === null) {
+    return NextResponse.json(
+      { error: "Channel ID must be a valid integer" },
+      { status: 400 },
+    );
+  }
+
+  // Info 5: Enforce JSON Content-Type on POST requests
+  if (!hasJsonContentType(req)) {
+    return NextResponse.json(
+      { error: "Content-Type must be application/json" },
+      { status: 415 },
+    );
+  }
+
   try {
     let body: { user_id?: number; content?: string };
     try {
@@ -89,6 +123,15 @@ export async function POST(
       );
     }
 
+    // Issue 1: Validate user_id is a valid integer
+    const parsedUserId = parseValidInt(user_id);
+    if (parsedUserId === null) {
+      return NextResponse.json(
+        { error: "user_id must be a valid integer" },
+        { status: 400 },
+      );
+    }
+
     // Issue #8: Reject whitespace-only content
     if (typeof content === "string" && content.trim().length === 0) {
       return NextResponse.json(
@@ -97,10 +140,23 @@ export async function POST(
       );
     }
 
+    // Issues 4 & 5: Validate content length and strip null bytes
+    const contentCheck = validateTextContent(
+      content,
+      "Content",
+      MAX_LENGTHS.MESSAGE_CONTENT,
+    );
+    if (!contentCheck.valid) {
+      return NextResponse.json(
+        { error: contentCheck.error },
+        { status: 400 },
+      );
+    }
+
     const result = await query(
       `INSERT INTO messages (channel_id, user_id, content)
        VALUES ($1, $2, $3) RETURNING *`,
-      [id, user_id, content]
+      [channelId, parsedUserId, contentCheck.sanitized]
     );
     // Return the message with user info
     const msg = await query(
