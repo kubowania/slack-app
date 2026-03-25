@@ -26,7 +26,10 @@ export async function GET(req: Request) {
     const inChannel = searchParams.get("in"); // channel_id filter
     const before = searchParams.get("before"); // ISO date upper bound
     const after = searchParams.get("after"); // ISO date lower bound
-    const type = searchParams.get("type"); // "message" | "channel" | "file"
+    const rawType = searchParams.get("type"); // "message(s)" | "channel(s)" | "file(s)"
+    /* Normalize plural tab IDs sent by the frontend (e.g. "messages" → "message")
+       so the downstream conditions match correctly. */
+    const type = rawType ? rawType.replace(/s$/, "") : null;
     const limit = parseInt(searchParams.get("limit") || "20", 10);
     const offset = parseInt(searchParams.get("offset") || "0", 10);
 
@@ -233,7 +236,7 @@ export async function GET(req: Request) {
       total: results.length,
       query: trimmedQ,
       filters: {
-        type: type || "all",
+        type: rawType || "all",
         from: from || null,
         in: inChannel || null,
         before: before || null,

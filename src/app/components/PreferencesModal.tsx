@@ -219,11 +219,15 @@ export default function PreferencesModal({
     if (!isOpen) return;
 
     let cancelled = false;
-    setLoading(true);
 
-    const url = currentUserId
-      ? `/api/preferences?user_id=${currentUserId}`
-      : "/api/preferences";
+    /* Skip fetching until currentUserId is available to prevent 400 responses */
+    if (!currentUserId) {
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    const url = `/api/preferences?user_id=${currentUserId}`;
 
     fetch(url)
       .then((res) => {

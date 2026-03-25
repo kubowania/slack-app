@@ -145,12 +145,16 @@ export default function SavedItems({ currentUserId }: SavedItemsProps) {
   useEffect(() => {
     let cancelled = false;
 
+    /* Skip fetching until currentUserId is available to prevent 400 responses */
+    if (!currentUserId) {
+      setLoading(false);
+      return;
+    }
+
     async function fetchSavedItems(): Promise<void> {
       setLoading(true);
       try {
-        const url = currentUserId
-          ? `/api/saved?user_id=${currentUserId}`
-          : "/api/saved";
+        const url = `/api/saved?user_id=${currentUserId}`;
         const response = await fetch(url);
         if (!response.ok) {
           throw new Error(`Failed to fetch saved items: ${response.status}`);

@@ -326,10 +326,71 @@ export default function SearchResults({
           }
         } else {
           const res = await fetch(
-            `/api/search?query=${encodeURIComponent(trimmed)}&type=${activeTab}`,
+            `/api/search?q=${encodeURIComponent(trimmed)}&type=${activeTab}`,
           );
           if (res.ok) {
-            const data: SearchResult[] = await res.json();
+            const json = await res.json();
+            /* The /api/search endpoint returns a wrapped response
+               { results: ApiSearchItem[], total, query, filters }.
+               Each API item is flat (type, id, snippet, channel_name, …).
+               Transform every item into the { type, item } shape that
+               the SearchResult interface and rendering helpers expect. */
+            const rawItems: Record<string, unknown>[] = Array.isArray(json)
+              ? json
+              : Array.isArray(json.results)
+                ? json.results
+                : [];
+
+            const data: SearchResult[] = rawItems.map((r) => {
+              const rType = (r.type as string) || "message";
+
+              if (rType === "message") {
+                return {
+                  type: "message" as const,
+                  item: {
+                    id: r.id as number,
+                    channel_id: r.channel_id as number,
+                    user_id: 0,
+                    content: (r.snippet as string) || "",
+                    created_at: (r.created_at as string) || "",
+                    username: (r.username as string) || undefined,
+                    avatar_color: (r.avatar_color as string) || undefined,
+                    channel_name: (r.channel_name as string) || undefined,
+                  },
+                  highlights: r.highlight ? [r.highlight as string] : [],
+                };
+              }
+
+              if (rType === "channel") {
+                return {
+                  type: "channel" as const,
+                  item: {
+                    id: r.id as number,
+                    name: ((r.channel_name as string) || (r.title as string) || "").replace(/^#/, ""),
+                    description: (r.snippet as string) || "",
+                    created_at: (r.created_at as string) || "",
+                    creator_name: (r.username as string) || undefined,
+                  },
+                  highlights: r.highlight ? [r.highlight as string] : [],
+                };
+              }
+
+              /* file */
+              return {
+                type: "file" as const,
+                item: {
+                  id: r.id as number,
+                  name: (r.title as string) || "",
+                  file_type: ((r.snippet as string) || "").split(" ")[0] || "unknown",
+                  file_size: 0,
+                  uploaded_by: 0,
+                  channel_id: (r.channel_id as number) || 0,
+                  created_at: (r.created_at as string) || "",
+                },
+                highlights: r.highlight ? [r.highlight as string] : [],
+              };
+            });
+
             setResults(data);
           } else {
             setResults([]);

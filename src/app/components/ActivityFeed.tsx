@@ -253,6 +253,18 @@ export default function ActivityFeed({ currentUserId }: ActivityFeedProps) {
   useEffect(() => {
     let mounted = true;
 
+    /* Build the activity endpoint URL, including user_id when available.
+       The /api/activity endpoint requires user_id as a query parameter
+       to scope results to the current user's mentions, threads, etc.
+       Skip fetching entirely until currentUserId is available to avoid 400
+       responses from the API which requires this parameter. */
+    if (!currentUserId) {
+      setLoading(false);
+      return;
+    }
+
+    const activityUrl = `/api/activity?user_id=${currentUserId}`;
+
     /**
      * Fetches activity items, users (for avatar info), and channels
      * (for channel name display) in parallel on mount.
@@ -260,7 +272,7 @@ export default function ActivityFeed({ currentUserId }: ActivityFeedProps) {
     async function fetchInitialData(): Promise<void> {
       try {
         const [activityRes, usersRes, channelsRes] = await Promise.all([
-          fetch("/api/activity"),
+          fetch(activityUrl),
           fetch("/api/users"),
           fetch("/api/channels"),
         ]);
@@ -291,7 +303,7 @@ export default function ActivityFeed({ currentUserId }: ActivityFeedProps) {
 
     /* Poll for new activity items every 30 seconds */
     const pollInterval = setInterval(() => {
-      fetch("/api/activity")
+      fetch(activityUrl)
         .then((res) => (res.ok ? res.json() : []))
         .then((data: unknown) => {
           if (mounted && Array.isArray(data)) {
@@ -308,7 +320,7 @@ export default function ActivityFeed({ currentUserId }: ActivityFeedProps) {
       mounted = false;
       clearInterval(pollInterval);
     };
-  }, []);
+  }, [currentUserId]);
 
   /* ---- Lookup Maps ---- */
   const userMap = new Map<number, User>(users.map((u) => [u.id, u]));

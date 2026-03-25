@@ -125,9 +125,17 @@ export default function ChannelBrowser({
             `Failed to fetch channels (HTTP ${response.status})`
           );
         }
-        const data: BrowseChannel[] = await response.json();
+        const json = await response.json();
+        /* The /api/channels/browse endpoint returns a wrapped object
+           { channels: BrowseChannel[], total, page, per_page, total_pages }.
+           Unwrap the channels array so state always holds a plain array. */
+        const channelList: BrowseChannel[] = Array.isArray(json)
+          ? json
+          : Array.isArray(json.channels)
+            ? json.channels
+            : [];
         if (!cancelled) {
-          setChannels(data);
+          setChannels(channelList);
         }
       } catch (err: unknown) {
         if (!cancelled) {
