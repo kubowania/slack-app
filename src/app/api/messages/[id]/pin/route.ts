@@ -2,15 +2,31 @@ import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 
 /**
+ * Helper to detect PostgreSQL unique constraint violations.
+ * Error code 23505 indicates a UNIQUE or PRIMARY KEY constraint failure.
+ */
+function isUniqueViolation(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    (err as { code: string }).code === "23505"
+  );
+}
+
+/**
  * POST /api/messages/:id/pin
  *
  * Pins a message to its channel. Requires `user_id` in the request body
  * to record which user pinned the message. Looks up the message to
  * determine its channel, then creates a pin record.
  *
+ * A message can only be pinned once. Attempting to pin an already-pinned
+ * message returns 409 Conflict.
+ *
  * Request body: { user_id: number }
  * Success response (201): Pin record { id, message_id, channel_id, pinned_by, created_at }
- * Error responses: 400 (missing user_id), 404 (message not found), 500 (server error)
+ * Error responses: 400 (missing user_id), 404 (message not found), 409 (already pinned), 500 (server error)
  */
 export async function POST(
   req: Request,
@@ -18,7 +34,17 @@ export async function POST(
 ) {
   const { id } = await params;
   try {
-    const { user_id } = await req.json();
+    let body: { user_id?: number };
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json(
+        { error: "Invalid JSON body" },
+        { status: 400 }
+      );
+    }
+
+    const { user_id } = body;
 
     if (!user_id) {
       return NextResponse.json(
@@ -42,7 +68,7 @@ export async function POST(
 
     const { channel_id } = result.rows[0];
 
-    // Insert the pin record linking message, channel, and pinning user
+    // Insert the pin record — UNIQUE constraint on message_id prevents duplicates
     const pinResult = await query(
       "INSERT INTO pins (message_id, channel_id, pinned_by) VALUES ($1, $2, $3) RETURNING *",
       [id, channel_id, user_id]
@@ -50,6 +76,14 @@ export async function POST(
 
     return NextResponse.json(pinResult.rows[0], { status: 201 });
   } catch (err) {
+    // Handle duplicate pin attempt: UNIQUE constraint on (message_id) triggers code 23505
+    if (isUniqueViolation(err)) {
+      return NextResponse.json(
+        { error: "Message is already pinned" },
+        { status: 409 }
+      );
+    }
+
     console.error("Failed to pin message:", err);
     return NextResponse.json(
       { error: "Failed to pin message" },

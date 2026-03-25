@@ -7,14 +7,12 @@ import { query } from "@/lib/db";
  * Retrieves all saved/bookmarked items for a specific user.
  * Joins with messages, files, and channels tables to provide
  * enriched context (message content, file name, source channel).
+ * Default LIMIT 100 to prevent unbounded result sets (AAP requirement).
  *
  * Query Parameters:
  *   - user_id (required): The ID of the user whose saved items to fetch
- *
- * Returns:
- *   - 200: Array of saved items with enriched data
- *   - 400: Missing user_id parameter
- *   - 500: Database or server error
+ *   - limit (optional, default 100): Max items to return (max 200)
+ *   - offset (optional, default 0): Pagination offset
  */
 export async function GET(req: Request) {
   try {
@@ -28,6 +26,9 @@ export async function GET(req: Request) {
       );
     }
 
+    const limit = Math.min(parseInt(searchParams.get("limit") || "100", 10) || 100, 200);
+    const offset = parseInt(searchParams.get("offset") || "0", 10) || 0;
+
     const result = await query(
       `SELECT si.*, m.content as message_content, f.name as file_name, c.name as source_channel
        FROM saved_items si
@@ -35,8 +36,9 @@ export async function GET(req: Request) {
        LEFT JOIN files f ON f.id = si.file_id
        LEFT JOIN channels c ON c.id = COALESCE(m.channel_id, f.channel_id)
        WHERE si.user_id = $1
-       ORDER BY si.saved_at DESC`,
-      [user_id]
+       ORDER BY si.saved_at DESC
+       LIMIT $2 OFFSET $3`,
+      [user_id, limit, offset]
     );
 
     return NextResponse.json(result.rows);
@@ -54,20 +56,21 @@ export async function GET(req: Request) {
  *
  * Saves/bookmarks a message or file for a user.
  * At least one of message_id or file_id must be provided.
- *
- * Request Body (JSON):
- *   - user_id (required): The ID of the user saving the item
- *   - message_id (optional): The ID of the message to save
- *   - file_id (optional): The ID of the file to save
- *
- * Returns:
- *   - 201: The newly created saved item record
- *   - 400: Missing user_id or both message_id and file_id
- *   - 500: Database or server error
+ * Returns 400 for invalid JSON or missing fields.
  */
 export async function POST(req: Request) {
   try {
-    const { user_id, message_id, file_id } = await req.json();
+    let body: { user_id?: number; message_id?: number; file_id?: number };
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json(
+        { error: "Invalid JSON body" },
+        { status: 400 }
+      );
+    }
+
+    const { user_id, message_id, file_id } = body;
 
     if (!user_id) {
       return NextResponse.json(
@@ -105,12 +108,6 @@ export async function POST(req: Request) {
  *
  * Query Parameters:
  *   - id (required): The ID of the saved item to remove
- *
- * Returns:
- *   - 204: No Content — item successfully deleted
- *   - 400: Missing id parameter
- *   - 404: Saved item not found
- *   - 500: Database or server error
  */
 export async function DELETE(req: Request) {
   try {

@@ -1,7 +1,24 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 
-// GET /api/users/[id]/status — Retrieve user status (emoji, text, expiry)
+/**
+ * Helper to detect PostgreSQL foreign key constraint violations.
+ * Error code 23503 indicates a FK constraint failure.
+ */
+function isForeignKeyViolation(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    (err as { code: string }).code === "23503"
+  );
+}
+
+/**
+ * GET /api/users/:id/status
+ *
+ * Retrieves the current status (emoji, text, expiry) for a user.
+ */
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -28,14 +45,30 @@ export async function GET(
   }
 }
 
-// PUT /api/users/[id]/status — Create or update user status via UPSERT
+/**
+ * PUT /api/users/:id/status
+ *
+ * Creates or updates user status via UPSERT.
+ * Returns 400 for invalid JSON or missing required fields.
+ * Returns 404 if the user_id doesn't reference a valid user (FK violation).
+ */
 export async function PUT(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
   try {
-    const { emoji, text, expiry } = await req.json();
+    let body: { emoji?: string; text?: string; expiry?: string | null };
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json(
+        { error: "Invalid JSON body" },
+        { status: 400 }
+      );
+    }
+
+    const { emoji, text, expiry } = body;
     if (!emoji || !text) {
       return NextResponse.json(
         { error: "emoji and text are required" },
@@ -55,6 +88,14 @@ export async function PUT(
     );
     return NextResponse.json(result.rows[0]);
   } catch (err) {
+    // Issue #10: Handle FK violations — non-existent user_id
+    if (isForeignKeyViolation(err)) {
+      return NextResponse.json(
+        { error: "User not found" },
+        { status: 404 }
+      );
+    }
+
     console.error("Failed to update user status:", err);
     return NextResponse.json(
       { error: "Failed to update user status" },

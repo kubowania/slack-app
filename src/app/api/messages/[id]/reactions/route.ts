@@ -22,7 +22,8 @@ export async function GET(
        FROM reactions r
        JOIN users u ON u.id = r.user_id
        WHERE r.message_id = $1
-       ORDER BY r.emoji, r.created_at ASC`,
+       ORDER BY r.emoji, r.created_at ASC
+       LIMIT 100`,
       [id]
     );
 
@@ -61,10 +62,13 @@ export async function GET(
  * POST /api/messages/:id/reactions
  *
  * Adds a new emoji reaction to a specific message for a given user.
+ * If the user has already reacted with the same emoji, this is a no-op
+ * per CONTRACTS.md (INSERT ON CONFLICT DO NOTHING).
  *
  * @body { emoji: string, user_id: number }
  * @returns 201 - The created reaction record
- * @returns 400 - Missing required fields (emoji, user_id)
+ * @returns 200 - No-op if duplicate reaction exists
+ * @returns 400 - Missing required fields (emoji, user_id) or malformed JSON
  * @returns 500 - Server error
  */
 export async function POST(
@@ -73,7 +77,17 @@ export async function POST(
 ) {
   const { id } = await params;
   try {
-    const { emoji, user_id } = await req.json();
+    let body: { emoji?: string; user_id?: number };
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json(
+        { error: "Invalid JSON body" },
+        { status: 400 }
+      );
+    }
+
+    const { emoji, user_id } = body;
 
     if (!emoji || !user_id) {
       return NextResponse.json(
@@ -82,11 +96,23 @@ export async function POST(
       );
     }
 
+    // Use ON CONFLICT DO NOTHING to prevent duplicate reactions
     const result = await query(
       `INSERT INTO reactions (message_id, user_id, emoji)
-       VALUES ($1, $2, $3) RETURNING *`,
+       VALUES ($1, $2, $3)
+       ON CONFLICT (message_id, user_id, emoji) DO NOTHING
+       RETURNING *`,
       [id, user_id, emoji]
     );
+
+    // If no row was returned, the reaction already existed — return existing as no-op
+    if (result.rows.length === 0) {
+      const existing = await query(
+        `SELECT * FROM reactions WHERE message_id = $1 AND user_id = $2 AND emoji = $3`,
+        [id, user_id, emoji]
+      );
+      return NextResponse.json(existing.rows[0], { status: 200 });
+    }
 
     return NextResponse.json(result.rows[0], { status: 201 });
   } catch (err) {
@@ -107,7 +133,7 @@ export async function POST(
  *
  * @body { emoji: string, user_id: number }
  * @returns 204 - Reaction successfully removed (no body)
- * @returns 400 - Missing required fields (emoji, user_id)
+ * @returns 400 - Missing required fields (emoji, user_id) or malformed JSON
  * @returns 404 - Reaction not found for the given combination
  * @returns 500 - Server error
  */
@@ -117,7 +143,17 @@ export async function DELETE(
 ) {
   const { id } = await params;
   try {
-    const { emoji, user_id } = await req.json();
+    let body: { emoji?: string; user_id?: number };
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json(
+        { error: "Invalid JSON body" },
+        { status: 400 }
+      );
+    }
+
+    const { emoji, user_id } = body;
 
     if (!emoji || !user_id) {
       return NextResponse.json(

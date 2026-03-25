@@ -1,6 +1,25 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 
+/**
+ * Helper to detect PostgreSQL unique constraint violations.
+ * Error code 23505 indicates a UNIQUE or PRIMARY KEY constraint failure.
+ */
+function isUniqueViolation(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    (err as { code: string }).code === "23505"
+  );
+}
+
+/**
+ * GET /api/channels
+ *
+ * Lists all channels with creator information, member counts, unread counts,
+ * and last message preview for the sidebar.
+ */
 export async function GET() {
   try {
     const result = await query(
@@ -22,9 +41,25 @@ export async function GET() {
   }
 }
 
+/**
+ * POST /api/channels
+ *
+ * Creates a new channel. The channel name is normalized to lowercase with
+ * hyphens replacing spaces. Returns 409 Conflict if the channel name already exists.
+ */
 export async function POST(req: Request) {
   try {
-    const { name, description, created_by } = await req.json();
+    let body: { name?: string; description?: string; created_by?: number };
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json(
+        { error: "Invalid JSON body" },
+        { status: 400 }
+      );
+    }
+
+    const { name, description, created_by } = body;
     if (!name) {
       return NextResponse.json(
         { error: "Channel name is required" },
@@ -37,6 +72,14 @@ export async function POST(req: Request) {
     );
     return NextResponse.json(result.rows[0], { status: 201 });
   } catch (err) {
+    // Handle duplicate channel name: UNIQUE constraint on channels.name triggers code 23505
+    if (isUniqueViolation(err)) {
+      return NextResponse.json(
+        { error: "A channel with this name already exists" },
+        { status: 409 }
+      );
+    }
+
     console.error("Failed to create channel:", err);
     return NextResponse.json(
       { error: "Failed to create channel" },

@@ -6,16 +6,7 @@ import { query } from "@/lib/db";
  *
  * Lists files shared across the workspace with optional filters.
  * Joins with users (uploader name) and channels (source channel name).
- *
- * Query Parameters:
- *   channel_id (number, optional) — filter by source channel
- *   user_id    (number, optional) — filter by uploader
- *   type       (string, optional) — filter by file type (e.g. "image", "pdf")
- *   limit      (number, optional, default 50) — pagination limit
- *   offset     (number, optional, default 0) — pagination offset
- *
- * Returns: JSON array of file metadata objects with uploader username
- *          and channel name, ordered by created_at descending.
+ * Already includes LIMIT/OFFSET pagination (default limit 50).
  */
 export async function GET(req: Request) {
   try {
@@ -78,20 +69,27 @@ export async function GET(req: Request) {
  *
  * Creates a file metadata record in the workspace file browser.
  * This is a mock-only endpoint — no binary upload is performed.
- *
- * Request Body (JSON):
- *   name          (string, required) — filename
- *   type          (string, required) — file type (e.g. "image", "pdf", "document")
- *   size          (number, required) — file size in bytes
- *   user_id       (number, required) — uploader user ID
- *   channel_id    (number, optional) — source channel (null for workspace-level files)
- *   thumbnail_url (string, optional) — preview thumbnail URL
- *
- * Returns: 201 with the created file record, or 400 for validation errors.
+ * Returns 400 for invalid JSON or missing required fields.
  */
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
+    let body: {
+      name?: string;
+      type?: string;
+      size?: number;
+      user_id?: number;
+      channel_id?: number;
+      thumbnail_url?: string;
+    };
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json(
+        { error: "Invalid JSON body" },
+        { status: 400 }
+      );
+    }
+
     const { name, type, size, user_id, channel_id, thumbnail_url } = body;
 
     if (!name || !type || !size || !user_id) {

@@ -6,22 +6,18 @@ import { query } from "@/lib/db";
  *
  * Retrieves the parent message and all replies in a thread by looking up the
  * junction rows in the `threads` table that link the parent message to its
- * reply messages.
- *
- * Path parameter:
- *   - id: The parent message ID whose thread replies to fetch
- *
- * Returns:
- *   - 200: `{ parent: Message | null, replies: Message[] }` — the parent
- *          message with user metadata and an ordered array of reply messages
- *   - 500: Database or server error
+ * reply messages. Default LIMIT 100 on replies.
  */
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
   try {
+    const { searchParams } = new URL(req.url);
+    const limit = Math.min(parseInt(searchParams.get("limit") || "100", 10) || 100, 200);
+    const offset = parseInt(searchParams.get("offset") || "0", 10) || 0;
+
     /* Fetch the parent message with user metadata */
     const parentResult = await query(
       `SELECT m.id, m.channel_id, m.user_id, m.content, m.created_at,
@@ -32,7 +28,7 @@ export async function GET(
       [id]
     );
 
-    /* Fetch thread replies ordered chronologically */
+    /* Fetch thread replies ordered chronologically with LIMIT */
     const repliesResult = await query(
       `SELECT m.id, m.channel_id, m.content, m.created_at, m.user_id,
               u.username, u.avatar_color
@@ -40,8 +36,9 @@ export async function GET(
        JOIN messages m ON m.id = t.reply_message_id
        JOIN users u ON u.id = m.user_id
        WHERE t.parent_message_id = $1
-       ORDER BY m.created_at ASC`,
-      [id]
+       ORDER BY m.created_at ASC
+       LIMIT $2 OFFSET $3`,
+      [id, limit, offset]
     );
 
     return NextResponse.json({
@@ -57,13 +54,30 @@ export async function GET(
   }
 }
 
+/**
+ * POST /api/messages/:id/thread
+ *
+ * Adds a reply to a thread. Creates a message in the same channel as the parent
+ * and links it via the threads table. Returns 400 for invalid JSON, missing fields.
+ * Returns 404 if parent message not found.
+ */
 export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
   try {
-    const { user_id, content } = await req.json();
+    let body: { user_id?: number; content?: string };
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json(
+        { error: "Invalid JSON body" },
+        { status: 400 }
+      );
+    }
+
+    const { user_id, content } = body;
     if (!content || !user_id) {
       return NextResponse.json(
         { error: "user_id and content are required" },

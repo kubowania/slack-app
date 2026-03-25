@@ -59,7 +59,8 @@ CREATE TABLE reactions (
   message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   emoji VARCHAR(50) NOT NULL,
-  created_at TIMESTAMP DEFAULT NOW()
+  created_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE (message_id, user_id, emoji)
 );
 
 CREATE TABLE pins (
@@ -67,7 +68,8 @@ CREATE TABLE pins (
   message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
   channel_id INTEGER NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
   pinned_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  created_at TIMESTAMP DEFAULT NOW()
+  created_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE (message_id)
 );
 
 CREATE TABLE direct_messages (

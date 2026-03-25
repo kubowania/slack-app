@@ -1,19 +1,30 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 
+/**
+ * GET /api/dms/:id/messages
+ *
+ * Fetches messages for a DM conversation with user info.
+ * Default LIMIT 100 to prevent unbounded result sets (AAP requirement).
+ */
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
   try {
+    const { searchParams } = new URL(req.url);
+    const limit = Math.min(parseInt(searchParams.get("limit") || "100", 10) || 100, 200);
+    const offset = parseInt(searchParams.get("offset") || "0", 10) || 0;
+
     const result = await query(
       `SELECT m.*, u.username, u.avatar_color
        FROM dm_messages m
        JOIN users u ON u.id = m.user_id
        WHERE m.dm_id = $1
-       ORDER BY m.created_at ASC`,
-      [id]
+       ORDER BY m.created_at ASC
+       LIMIT $2 OFFSET $3`,
+      [id, limit, offset]
     );
     return NextResponse.json(result.rows);
   } catch (err) {
@@ -25,13 +36,28 @@ export async function GET(
   }
 }
 
+/**
+ * POST /api/dms/:id/messages
+ *
+ * Sends a message in a DM conversation. Returns 400 for invalid JSON or missing fields.
+ */
 export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
   try {
-    const { user_id, content } = await req.json();
+    let body: { user_id?: number; content?: string };
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json(
+        { error: "Invalid JSON body" },
+        { status: 400 }
+      );
+    }
+
+    const { user_id, content } = body;
     if (!content || !user_id) {
       return NextResponse.json(
         { error: "user_id and content are required" },

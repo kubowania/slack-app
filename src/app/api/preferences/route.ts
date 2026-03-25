@@ -6,14 +6,6 @@ import { query } from "@/lib/db";
  *
  * Fetches user preferences for the given user_id.
  * Returns a default preferences object if no record exists for the user.
- *
- * Query Parameters:
- *   - user_id (required): The numeric ID of the user whose preferences to fetch
- *
- * Responses:
- *   - 200: Preferences object (from DB or defaults)
- *   - 400: { error: "user_id is required" }
- *   - 500: { error: "Failed to fetch preferences" }
  */
 export async function GET(req: Request) {
   try {
@@ -59,23 +51,28 @@ export async function GET(req: Request) {
  *
  * Upserts user preferences. If a record already exists for the given user_id
  * it is updated; otherwise a new record is inserted.
- *
- * Request Body (JSON):
- *   - user_id (required): The numeric ID of the user
- *   - notification_sound (optional, default true): Enable notification sounds
- *   - notification_desktop (optional, default true): Enable desktop notifications
- *   - sidebar_sort (optional, default "alpha"): Sidebar sort order ("alpha" | "recent")
- *   - theme (optional, default "light"): UI theme ("light" | "dark")
- *   - language (optional, default "en"): Language code
- *   - timezone (optional, default "UTC"): IANA timezone string
- *
- * Responses:
- *   - 200: The upserted preferences row
- *   - 400: { error: "user_id is required" }
- *   - 500: { error: "Failed to update preferences" }
+ * Returns 400 for invalid JSON or missing user_id.
  */
 export async function PUT(req: Request) {
   try {
+    let body: {
+      user_id?: number;
+      notification_sound?: boolean;
+      notification_desktop?: boolean;
+      sidebar_sort?: string;
+      theme?: string;
+      language?: string;
+      timezone?: string;
+    };
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json(
+        { error: "Invalid JSON body" },
+        { status: 400 }
+      );
+    }
+
     const {
       user_id,
       notification_sound,
@@ -84,7 +81,7 @@ export async function PUT(req: Request) {
       theme,
       language,
       timezone,
-    } = await req.json();
+    } = body;
 
     if (!user_id) {
       return NextResponse.json(

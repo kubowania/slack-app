@@ -11,32 +11,32 @@ interface DmRow {
   is_group: boolean;
   created_at: string;
   last_message_preview: string | null;
-  message_count: string; // PostgreSQL COUNT returns bigint as string
+  last_message_at: string | null;
+  unread_count: number;
 }
 
 interface DmMemberRow {
   dm_id: number;
-  id: number;
+  user_id: number;
   username: string;
   avatar_color: string;
+  display_name: string | null;
 }
 
 interface DmMember {
-  id: number;
+  user_id: number;
   username: string;
   avatar_color: string;
+  display_name: string | null;
 }
 
 /**
  * GET /api/dms
  *
- * Lists all direct message conversations with their members and last message preview.
- * Uses a two-query batch approach:
- *   1. Fetch all DMs with last message preview and message count via subqueries
- *   2. Fetch all DM members for the retrieved DM IDs in a single batch query
- *   3. Combine results in JavaScript before returning
+ * Lists all direct message conversations with their members, last message preview,
+ * last_message_at timestamp, and unread_count.
  *
- * Response shape:
+ * Response shape matches CONTRACTS.md DirectMessage[] schema:
  * [
  *   {
  *     id: number,
@@ -44,20 +44,23 @@ interface DmMember {
  *     is_group: boolean,
  *     created_at: string,
  *     last_message_preview: string | null,
- *     message_count: number,
- *     members: [{ id: number, username: string, avatar_color: string }]
+ *     last_message_at: string | null,
+ *     unread_count: number,
+ *     members: [{ user_id: number, username: string, avatar_color: string, display_name: string | null }]
  *   }
  * ]
  */
 export async function GET() {
   try {
-    // Query 1: Fetch all DM conversations with last message preview and total message count
+    // Query 1: Fetch all DM conversations with last message preview, last_message_at, and unread_count
     const dmsResult = await query(
       `SELECT dm.id, dm.created_by, dm.is_group, dm.created_at,
         (SELECT content FROM dm_messages WHERE dm_id = dm.id ORDER BY created_at DESC LIMIT 1) AS last_message_preview,
-        (SELECT COUNT(*) FROM dm_messages WHERE dm_id = dm.id) AS message_count
+        (SELECT created_at FROM dm_messages WHERE dm_id = dm.id ORDER BY created_at DESC LIMIT 1) AS last_message_at,
+        0 AS unread_count
        FROM direct_messages dm
-       ORDER BY dm.created_at DESC`
+       ORDER BY dm.created_at DESC
+       LIMIT 100`
     );
 
     const dms: DmRow[] = dmsResult.rows;
@@ -67,12 +70,13 @@ export async function GET() {
       return NextResponse.json([]);
     }
 
-    // Query 2: Batch-fetch all members for all retrieved DM IDs in a single query
+    // Query 2: Batch-fetch all members for all retrieved DM IDs with display_name from user_statuses
     const dmIds = dms.map((dm) => dm.id);
     const membersResult = await query(
-      `SELECT dmm.dm_id, u.id, u.username, u.avatar_color
+      `SELECT dmm.dm_id, u.id AS user_id, u.username, u.avatar_color, us.display_name
        FROM dm_members dmm
        JOIN users u ON u.id = dmm.user_id
+       LEFT JOIN user_statuses us ON us.user_id = u.id
        WHERE dmm.dm_id = ANY($1)`,
       [dmIds]
     );
@@ -82,9 +86,10 @@ export async function GET() {
     for (const row of membersResult.rows as DmMemberRow[]) {
       const existing = membersByDmId.get(row.dm_id);
       const member: DmMember = {
-        id: row.id,
+        user_id: row.user_id,
         username: row.username,
         avatar_color: row.avatar_color,
+        display_name: row.display_name || null,
       };
       if (existing) {
         existing.push(member);
@@ -98,10 +103,11 @@ export async function GET() {
       id: dm.id,
       created_by: dm.created_by,
       is_group: dm.is_group,
-      created_at: dm.created_at,
-      last_message_preview: dm.last_message_preview,
-      message_count: Number(dm.message_count),
       members: membersByDmId.get(dm.id) || [],
+      last_message_preview: dm.last_message_preview,
+      last_message_at: dm.last_message_at,
+      unread_count: dm.unread_count,
+      created_at: dm.created_at,
     }));
 
     return NextResponse.json(dmsWithMembers);
@@ -129,7 +135,15 @@ export async function GET() {
  */
 export async function POST(req: Request) {
   try {
-    const body: { member_ids?: unknown } = await req.json();
+    let body: { member_ids?: unknown };
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json(
+        { error: "Invalid JSON body" },
+        { status: 400 }
+      );
+    }
     const { member_ids } = body;
 
     // Validate member_ids is a non-empty array with at least 2 user IDs
@@ -183,24 +197,26 @@ export async function POST(req: Request) {
       );
     }
 
-    // Fetch the complete member list with user details for the response
+    // Fetch the complete member list with user details and display_name for the response
     const membersResult = await query(
-      `SELECT u.id, u.username, u.avatar_color
+      `SELECT u.id AS user_id, u.username, u.avatar_color, us.display_name
        FROM dm_members dmm
        JOIN users u ON u.id = dmm.user_id
+       LEFT JOIN user_statuses us ON us.user_id = u.id
        WHERE dmm.dm_id = $1`,
       [dm.id]
     );
 
-    // Build the complete response object matching the GET response shape
+    // Build the complete response object matching CONTRACTS.md schema
     const dmWithMembers = {
       id: dm.id,
       created_by: dm.created_by,
       is_group: dm.is_group,
-      created_at: dm.created_at,
-      last_message_preview: null,
-      message_count: 0,
       members: membersResult.rows as DmMember[],
+      last_message_preview: null,
+      last_message_at: null,
+      unread_count: 0,
+      created_at: dm.created_at,
     };
 
     return NextResponse.json(dmWithMembers, { status: 201 });

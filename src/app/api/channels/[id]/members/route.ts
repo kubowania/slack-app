@@ -1,20 +1,31 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 
+/**
+ * GET /api/channels/:id/members
+ *
+ * Lists members of a channel with their roles, display names, and avatar info.
+ * Default LIMIT 100 to prevent unbounded result sets (AAP requirement).
+ */
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
   try {
+    const { searchParams } = new URL(req.url);
+    const limit = Math.min(parseInt(searchParams.get("limit") || "100", 10) || 100, 200);
+    const offset = parseInt(searchParams.get("offset") || "0", 10) || 0;
+
     const result = await query(
       `SELECT cm.*, u.username, u.avatar_color, us.display_name
        FROM channel_members cm
        JOIN users u ON u.id = cm.user_id
        LEFT JOIN user_statuses us ON us.user_id = u.id
        WHERE cm.channel_id = $1
-       ORDER BY cm.joined_at ASC`,
-      [id]
+       ORDER BY cm.joined_at ASC
+       LIMIT $2 OFFSET $3`,
+      [id, limit, offset]
     );
     return NextResponse.json(result.rows);
   } catch (err) {
@@ -26,13 +37,29 @@ export async function GET(
   }
 }
 
+/**
+ * POST /api/channels/:id/members
+ *
+ * Adds a user as a member of a channel.
+ * Returns 400 for invalid JSON or missing user_id.
+ */
 export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
   try {
-    const { user_id, role } = await req.json();
+    let body: { user_id?: number; role?: string };
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json(
+        { error: "Invalid JSON body" },
+        { status: 400 }
+      );
+    }
+
+    const { user_id, role } = body;
     if (!user_id) {
       return NextResponse.json(
         { error: "user_id is required" },
@@ -55,13 +82,29 @@ export async function POST(
   }
 }
 
+/**
+ * DELETE /api/channels/:id/members
+ *
+ * Removes a user from a channel. Returns 404 if the member is not found.
+ * Returns 400 for invalid JSON or missing user_id.
+ */
 export async function DELETE(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
   try {
-    const { user_id } = await req.json();
+    let body: { user_id?: number };
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json(
+        { error: "Invalid JSON body" },
+        { status: 400 }
+      );
+    }
+
+    const { user_id } = body;
     if (!user_id) {
       return NextResponse.json(
         { error: "user_id is required" },

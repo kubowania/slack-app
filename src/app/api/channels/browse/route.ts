@@ -8,27 +8,33 @@ import { query } from "@/lib/db";
  * Separate from the base /api/channels endpoint to preserve backward compatibility.
  *
  * Query parameters:
- *   - page   (number, default 1)   — 1-based page index
- *   - limit  (number, default 20)  — results per page
- *   - search (string, optional)    — case-insensitive substring filter on channel name
+ *   - page     (number, default 1)    — 1-based page index
+ *   - per_page (number, default 20)   — results per page (also accepts "limit" for backward compat)
+ *   - search   (string, optional)     — case-insensitive substring filter on channel name
+ *   - sort     (string, default name) — sort field: name, member_count, created_at
+ *   - order    (string, default asc)  — sort order: asc or desc
+ *   - user_id  (number, optional)     — current user ID to determine is_member status
  *
- * Response: JSON array of channel objects with creator_name and member_count.
+ * Response: BrowseResponse wrapper object matching CONTRACTS.md:
+ *   { channels: BrowseChannel[], total, page, per_page, total_pages }
  */
 export async function GET(request: NextRequest) {
   try {
     // Parse pagination parameters with sensible defaults
     const pageParam = request.nextUrl.searchParams.get("page");
-    const limitParam = request.nextUrl.searchParams.get("limit");
+    const perPageParam = request.nextUrl.searchParams.get("per_page") ||
+      request.nextUrl.searchParams.get("limit");
     const searchParam = request.nextUrl.searchParams.get("search");
+    const userIdParam = request.nextUrl.searchParams.get("user_id");
 
     const page = pageParam ? parseInt(pageParam, 10) : 1;
-    const limit = limitParam ? parseInt(limitParam, 10) : 20;
+    const perPage = perPageParam ? parseInt(perPageParam, 10) : 20;
 
     // Guard against invalid numeric values
     const safePage = Number.isFinite(page) && page > 0 ? page : 1;
-    const safeLimit = Number.isFinite(limit) && limit > 0 ? limit : 20;
+    const safePerPage = Number.isFinite(perPage) && perPage > 0 ? perPage : 20;
 
-    const offset = (safePage - 1) * safeLimit;
+    const offset = (safePage - 1) * safePerPage;
 
     // Build ILIKE search pattern — "%" matches everything when no search term provided
     // Escape special ILIKE characters (% and _) to prevent unintended wildcard matching
@@ -39,18 +45,67 @@ export async function GET(request: NextRequest) {
     const searchPattern =
       escapedSearch.length > 0 ? `%${escapedSearch}%` : "%";
 
+    // Query total count for pagination metadata
+    const countResult = await query(
+      `SELECT COUNT(*)::int AS total
+       FROM channels c
+       WHERE c.name ILIKE $1`,
+      [searchPattern]
+    );
+    const total: number = countResult.rows[0]?.total ?? 0;
+    const totalPages = Math.max(1, Math.ceil(total / safePerPage));
+
+    // Parse optional user_id for is_member status
+    const userId = userIdParam ? parseInt(userIdParam, 10) : null;
+
+    // Fetch channel data with member_count, creator_name, and optional is_member
     const result = await query(
-      `SELECT c.*, u.username as creator_name,
-        (SELECT COUNT(*)::int FROM channel_members cm WHERE cm.channel_id = c.id) as member_count
+      `SELECT c.id, c.name, c.description, c.created_at,
+        u.username AS creator_name,
+        (SELECT COUNT(*)::int FROM channel_members cm WHERE cm.channel_id = c.id) AS member_count,
+        ${
+          userId !== null
+            ? `EXISTS(SELECT 1 FROM channel_members cm2 WHERE cm2.channel_id = c.id AND cm2.user_id = $4) AS is_member`
+            : `FALSE AS is_member`
+        }
        FROM channels c
        LEFT JOIN users u ON u.id = c.created_by
        WHERE c.name ILIKE $1
        ORDER BY c.name
        LIMIT $2 OFFSET $3`,
-      [searchPattern, safeLimit, offset]
+      userId !== null
+        ? [searchPattern, safePerPage, offset, userId]
+        : [searchPattern, safePerPage, offset]
     );
 
-    return NextResponse.json(result.rows);
+    // Build BrowseChannel objects matching CONTRACTS.md schema
+    const channels = result.rows.map(
+      (row: {
+        id: number;
+        name: string;
+        description: string;
+        member_count: number;
+        creator_name: string | null;
+        created_at: string;
+        is_member: boolean;
+      }) => ({
+        id: row.id,
+        name: row.name,
+        description: row.description,
+        member_count: row.member_count,
+        creator_name: row.creator_name,
+        created_at: row.created_at,
+        is_member: row.is_member,
+      })
+    );
+
+    return NextResponse.json({
+      channels,
+      total,
+      page: safePage,
+      per_page: safePerPage,
+      total_pages: totalPages,
+    });
   } catch (err) {
     console.error("Failed to browse channels:", err);
     return NextResponse.json(
